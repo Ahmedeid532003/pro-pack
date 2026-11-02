@@ -32,3 +32,6 @@ _ls*.txt
 _*.txt
 _*.tmp
 *.tmp2.png
+
+.vercel
+.env*

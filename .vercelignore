@@ -12,5 +12,11 @@ node_modules
 logs
 *.log
 .wrangler
-apps/desktop/src-tauri/target
+apps/desktop
 deploy
+NAVY PROFILE PIC AK TECH.png
+*.zip
+_*.txt
+.env.local
+.env.m5azen.pull
+.env.turso
