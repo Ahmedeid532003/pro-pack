@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { autoCode } from '../common/auto-code';
@@ -56,6 +56,32 @@ export class SuppliersService {
     });
     if (!s) throw new NotFoundException('المورد غير موجود');
     return s;
+  }
+
+  async remove(id: string) {
+    const supplier = await this.findOne(id);
+    const [invoices, payments, returns, checks, documents] = await Promise.all([
+      this.prisma.purchaseInvoice.count({ where: { supplierId: id } }),
+      this.prisma.payment.count({ where: { supplierId: id } }),
+      this.prisma.purchaseReturn.count({ where: { supplierId: id } }),
+      this.prisma.bankCheck.count({ where: { supplierId: id } }),
+      this.prisma.tradeDocument.count({ where: { supplierId: id } }),
+    ]);
+    const blockers = [
+      invoices && `${invoices} فاتورة شراء`,
+      payments && `${payments} سداد`,
+      returns && `${returns} مرتجع`,
+      checks && `${checks} شيك`,
+      documents && `${documents} أمر شراء`,
+    ].filter(Boolean);
+    if (blockers.length) {
+      throw new BadRequestException(`لا يمكن حذف المورد لأن عليه ${blockers.join(' و ')}. احذفها الأول أو أوقف المورد`);
+    }
+    if (Math.abs(supplier.balance) > 0.009) {
+      throw new BadRequestException('لا يمكن حذف مورد رصيده مش صفر — سوّي الرصيد الأول أو أوقف المورد');
+    }
+    await this.prisma.supplier.delete({ where: { id } });
+    return { ok: true };
   }
 
   async create(data: {

@@ -607,7 +607,7 @@ export class SalesService {
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, deletedById?: string) {
     const inv = await this.prisma.salesInvoice.findUnique({
       where: { id },
       include: { lines: true, receipts: true, returns: true },
@@ -621,6 +621,7 @@ export class SalesService {
     return this.prisma.$transaction(async (tx) => {
       if (inv.status !== InvoiceStatus.DRAFT) {
         for (const line of inv.lines) {
+          const stockQty = line.netWeight != null && line.netWeight > 0 ? line.netWeight : line.quantity;
           await tx.stockBalance.upsert({
             where: {
               warehouseId_productId: {
@@ -631,9 +632,9 @@ export class SalesService {
             create: {
               warehouseId: inv.warehouseId,
               productId: line.productId,
-              quantity: line.quantity,
+              quantity: stockQty,
             },
-            update: { quantity: { increment: line.quantity } },
+            update: { quantity: { increment: stockQty } },
           });
         }
         await tx.stockMovement.deleteMany({
@@ -650,7 +651,7 @@ export class SalesService {
             data: { balance: { decrement: due } },
           });
         }
-        await reverseSaleMoney(tx, id, inv.receipts);
+        await reverseSaleMoney(tx, id, inv.receipts, { invoiceNumber: inv.number, createdById: deletedById });
       } else {
         await tx.receipt.deleteMany({ where: { salesInvoiceId: id } });
       }

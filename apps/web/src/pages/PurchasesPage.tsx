@@ -11,7 +11,8 @@ import { ProductPicker } from '../components/ProductPicker';
 import { productsForWarehouse } from '../lib/productWarehouse';
 import { optionalNumber, sizeText } from '../lib/size';
 import { TenderEditor, type PayMethodOption, type TenderPart } from '../components/TenderEditor';
-import { useConfirm, useToast } from '../lib/feedback';
+import { usePrompt, useToast } from '../lib/feedback';
+import { deleteInvoiceWithPassword } from '../lib/deleteInvoice';
 import { useColumns } from '../lib/columns';
 import { IconAction, ListBar } from '../components/ListBar';
 import {
@@ -93,7 +94,7 @@ function owed(inv: { status: string; total: number; paidAmount: number }) {
 }
 
 export function PurchasesPage() {
-  const confirm = useConfirm();
+  const prompt = usePrompt();
   const toast = useToast();
   const [items, setItems] = useState<Invoice[]>([]);
   const [listPage, setListPage] = useState(1);
@@ -309,15 +310,8 @@ export function PurchasesPage() {
   }
 
   async function removeInvoice(id: string) {
-    const ok = await confirm({
-      title: 'حذف فاتورة الشراء',
-      message: 'حذف الفاتورة وإلغاء أثرها على المخزون والحسابات؟',
-      confirmLabel: 'حذف',
-      danger: true,
-    });
-    if (!ok) return;
     try {
-      await api(`/purchases/${id}`, { method: 'DELETE' });
+      if (!(await deleteInvoiceWithPassword(prompt, `/purchases/${id}`, 'فاتورة الشراء'))) return;
       if (view?.id === id) setView(null);
       toast.success('تم حذف الفاتورة');
       load();

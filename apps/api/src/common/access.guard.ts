@@ -60,7 +60,7 @@ export function actionFor(method: string, path: string, page: PageId) {
   if (/\/adjust/.test(path)) return 'adjust';
   if (/\/transfers/.test(path)) return 'transfer';
   if (/\/periods\/(?:close|reopen)/.test(path)) return 'periods';
-  if (/\/edit-password$/.test(path)) return 'company';
+  if (/\/(edit|delete)-password$/.test(path)) return 'company';
   if (page === 'settings' && path.startsWith('/api/users')) return 'users';
   if (page === 'settings' && path === '/api/settings') return 'company';
   if (page === 'stock' && /\/movements|\/batches|\/locations|\/product-locations/.test(path)) return 'adjust';

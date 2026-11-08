@@ -337,54 +337,73 @@ export async function syncPurchaseTenders(tx: Tx, opts: {
   return Math.round(rows.reduce((sum, row) => sum + row.amount, 0) * 100) / 100;
 }
 
-export async function reverseSaleMoney(tx: Tx, salesInvoiceId: string, receipts: { number: string; amount: number; cashAccountId: string | null }[]) {
+type DeletedInvoice = { invoiceNumber: string; createdById?: string };
+
+/** Puts money back into an account for a deleted invoice and records it as its own treasury movement. */
+async function postReversal(
+  tx: Tx,
+  accountId: string,
+  direction: CashDirection,
+  amount: number,
+  reference: string,
+  description: string,
+  createdById?: string,
+) {
+  await tx.cashAccount.update({
+    where: { id: accountId },
+    data: { balance: { [direction === CashDirection.IN ? 'increment' : 'decrement']: amount } },
+  });
+  await tx.cashTransaction.create({
+    data: { accountId, direction, amount, description, reference, createdById },
+  });
+}
+
+export async function reverseSaleMoney(
+  tx: Tx,
+  salesInvoiceId: string,
+  receipts: { number: string; amount: number; cashAccountId: string | null }[],
+  deleted: DeletedInvoice,
+) {
   for (const receipt of receipts) {
     if (!receipt.cashAccountId) continue;
-    await tx.cashAccount.update({
-      where: { id: receipt.cashAccountId },
-      data: { balance: { decrement: receipt.amount } },
-    });
-    await tx.cashTransaction.deleteMany({
-      where: { reference: receipt.number, accountId: receipt.cashAccountId },
-    });
+    await postReversal(
+      tx, receipt.cashAccountId, CashDirection.OUT, receipt.amount, receipt.number,
+      `إلغاء فاتورة بيع ${deleted.invoiceNumber} — رد التحصيل ${receipt.number}`, deleted.createdById,
+    );
   }
   const checks = await tx.bankCheck.findMany({ where: { salesInvoiceId } });
   for (const check of checks) {
     if (check.status === 'CLEARED' && check.accountId) {
-      await tx.cashAccount.update({
-        where: { id: check.accountId },
-        data: { balance: { decrement: check.amount } },
-      });
-      await tx.cashTransaction.deleteMany({
-        where: { reference: check.checkNumber, accountId: check.accountId },
-      });
+      await postReversal(
+        tx, check.accountId, CashDirection.OUT, check.amount, check.checkNumber,
+        `إلغاء فاتورة بيع ${deleted.invoiceNumber} — رد شيك ${check.checkNumber}`, deleted.createdById,
+      );
     }
   }
   await tx.bankCheck.deleteMany({ where: { salesInvoiceId } });
   await tx.receipt.deleteMany({ where: { salesInvoiceId } });
 }
 
-export async function reversePurchaseMoney(tx: Tx, purchaseInvoiceId: string, payments: { number: string; amount: number; cashAccountId: string | null }[]) {
+export async function reversePurchaseMoney(
+  tx: Tx,
+  purchaseInvoiceId: string,
+  payments: { number: string; amount: number; cashAccountId: string | null }[],
+  deleted: DeletedInvoice,
+) {
   for (const payment of payments) {
     if (!payment.cashAccountId) continue;
-    await tx.cashAccount.update({
-      where: { id: payment.cashAccountId },
-      data: { balance: { increment: payment.amount } },
-    });
-    await tx.cashTransaction.deleteMany({
-      where: { reference: payment.number, accountId: payment.cashAccountId },
-    });
+    await postReversal(
+      tx, payment.cashAccountId, CashDirection.IN, payment.amount, payment.number,
+      `إلغاء فاتورة شراء ${deleted.invoiceNumber} — رجوع المبلغ ${payment.number} للخزنة`, deleted.createdById,
+    );
   }
   const checks = await tx.bankCheck.findMany({ where: { purchaseInvoiceId } });
   for (const check of checks) {
     if (check.status === 'CLEARED' && check.accountId) {
-      await tx.cashAccount.update({
-        where: { id: check.accountId },
-        data: { balance: { increment: check.amount } },
-      });
-      await tx.cashTransaction.deleteMany({
-        where: { reference: check.checkNumber, accountId: check.accountId },
-      });
+      await postReversal(
+        tx, check.accountId, CashDirection.IN, check.amount, check.checkNumber,
+        `إلغاء فاتورة شراء ${deleted.invoiceNumber} — رجوع شيك ${check.checkNumber}`, deleted.createdById,
+      );
     }
   }
   await tx.bankCheck.deleteMany({ where: { purchaseInvoiceId } });

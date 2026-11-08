@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
 import { PriceList, Role } from '@prisma/client';
 import { CustomersService } from './customers.service';
@@ -131,5 +131,11 @@ export class CustomersController {
   @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SALES)
   update(@Param('id') id: string, @Body() dto: UpdateCustomerDto) {
     return this.service.update(id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }

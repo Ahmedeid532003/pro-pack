@@ -608,7 +608,7 @@ export class PurchasesService {
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, deletedById?: string) {
     const inv = await this.prisma.purchaseInvoice.findUnique({
       where: { id },
       include: { lines: true, payments: true, returns: true },
@@ -622,6 +622,7 @@ export class PurchasesService {
     return this.prisma.$transaction(async (tx) => {
       if (inv.status !== InvoiceStatus.DRAFT) {
         for (const line of inv.lines) {
+          const stockQty = line.netWeight != null && line.netWeight > 0 ? line.netWeight : line.quantity;
           const bal = await tx.stockBalance.findUnique({
             where: {
               warehouseId_productId: {
@@ -630,12 +631,12 @@ export class PurchasesService {
               },
             },
           });
-          if (!bal || bal.quantity < line.quantity) {
+          if (!bal || bal.quantity < stockQty - 0.0001) {
             throw new BadRequestException('لا يمكن الحذف لأن كمية المخزون أقل من كمية الفاتورة');
           }
           await tx.stockBalance.update({
             where: { id: bal.id },
-            data: { quantity: { decrement: line.quantity } },
+            data: { quantity: { decrement: stockQty } },
           });
         }
         await tx.stockMovement.deleteMany({
@@ -652,7 +653,7 @@ export class PurchasesService {
             data: { balance: { decrement: due } },
           });
         }
-        await reversePurchaseMoney(tx, id, inv.payments);
+        await reversePurchaseMoney(tx, id, inv.payments, { invoiceNumber: inv.number, createdById: deletedById });
       } else {
         await tx.payment.deleteMany({ where: { purchaseInvoiceId: id } });
       }

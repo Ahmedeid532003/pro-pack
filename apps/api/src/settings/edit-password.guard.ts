@@ -12,6 +12,8 @@ export class EditPasswordGuard implements CanActivate {
     if (!['PATCH', 'PUT', 'DELETE'].includes(method)) return true;
     const url = req.originalUrl || req.url || '';
     if (url.includes('/settings') || url.includes('/auth')) return true;
+    // حذف فواتير البيع والشراء محمي بكلمة سر الحذف بدلاً من كلمة سر التعديل
+    if (method === 'DELETE' && /\/api\/(sales|purchases)\/[^/?]+(\?|$)/.test(url)) return true;
     const row = await this.prisma.setting.findUnique({ where: { key: 'editPasswordHash' } });
     if (!row?.value) return true;
     if (!verifyEditToken(req.headers['x-edit-token'])) {

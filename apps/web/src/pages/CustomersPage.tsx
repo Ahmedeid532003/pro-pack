@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CircleDollarSign, FileSignature, FileText, Hash, MapPin, Pencil, Phone, Plus, Printer, Users, Wallet, Warehouse } from 'lucide-react';
+import { CircleDollarSign, FileSignature, FileText, Hash, MapPin, Pencil, Phone, Plus, Printer, Trash2, Users, Wallet, Warehouse } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { downloadExcelBuffer, exportInvoiceExcel } from '../lib/docExport';
 import { api, formatDate, formatMoney, initialQuery } from '../lib/api';
@@ -8,6 +8,7 @@ import { optionalNumber } from '../lib/size';
 import { DueAmount } from '../components/DueAmount';
 import { DocExportBar } from '../components/DocExportBar';
 import { useFeedback } from '../lib/feedback';
+import { useAccess } from '../lib/auth';
 import { useColumns } from '../lib/columns';
 import { FilterOption, IconAction, ListBar } from '../components/ListBar';
 import { NotesPanel } from '../components/NotesPanel';
@@ -109,6 +110,7 @@ export function CustomersPage() {
   const [contractSaving, setContractSaving] = useState(false);
   const [pickerCustomers, setPickerCustomers] = useState<Customer[]>([]);
   const feedback = useFeedback();
+  const canDelete = useAccess().can('customers', 'delete');
 
   async function load() {
     const params = new URLSearchParams({ page: String(listPage), pageSize: String(pageSize) });
@@ -347,6 +349,23 @@ export function CustomersPage() {
     });
   }
 
+  async function removeCustomer(row: Customer) {
+    const ok = await feedback.confirm({
+      title: 'حذف العميل',
+      message: `حذف العميل ${row.name} نهائيًا؟ لو عليه فواتير أو رصيد الحذف هيتمنع، وتقدر توقفه بدل الحذف.`,
+      confirmLabel: 'حذف',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/customers/${row.id}`, { method: 'DELETE' });
+      feedback.success('تم حذف العميل');
+      await load();
+    } catch (error) {
+      feedback.error(error instanceof Error ? error.message : 'تعذر حذف العميل');
+    }
+  }
+
   async function bulk(isActive: boolean) {
     const result = await api<{ updated: number }>('/customers/bulk', { method: 'POST', body: JSON.stringify({ ids: selected, isActive }) });
     feedback.success(`تم تحديث ${result.updated} عميل`);
@@ -470,6 +489,7 @@ export function CustomersPage() {
                     </div>
                     <div className="flex gap-1">
                       <IconAction label="تعديل" onClick={() => openEdit(row)}><Pencil size={14} /></IconAction>
+{canDelete && <IconAction label="حذف" danger onClick={() => removeCustomer(row)}><Trash2 size={14} /></IconAction>}
                       <IconAction label="تعاقد" onClick={() => openNewContract(row.id)}><FileSignature size={14} /></IconAction>
                       <IconAction label="كشف حساب" onClick={() => showStatement(row.id)}><FileText size={14} /></IconAction>
                     </div>
@@ -516,6 +536,7 @@ export function CustomersPage() {
                     <Td>
                       <div className="flex gap-1">
                         <IconAction label="تعديل" onClick={() => openEdit(row)}><Pencil size={14} /></IconAction>
+                        {canDelete && <IconAction label="حذف" danger onClick={() => removeCustomer(row)}><Trash2 size={14} /></IconAction>}
                         <IconAction label="تعاقد" onClick={() => openNewContract(row.id)}><FileSignature size={14} /></IconAction>
                         <IconAction label="كشف حساب" onClick={() => showStatement(row.id)}><FileText size={14} /></IconAction>
                       </div>

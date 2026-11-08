@@ -6,6 +6,7 @@ import { SalesService } from './sales.service';
 import { Roles } from '../common/guards';
 import { assertWarehouseAllowed, userWarehouseIds } from '../common/warehouse-scope';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertDeletePassword, DELETE_PASSWORD_HEADER } from '../common/delete-password';
 
 class LineDto {
   @IsOptional() @IsString() id?: string;
@@ -102,7 +103,12 @@ export class SalesController {
 
   @Delete(':id')
   @Roles(Role.ADMIN, Role.SALES, Role.ACCOUNTANT)
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @Headers(DELETE_PASSWORD_HEADER) deletePassword: string | undefined,
+    @Req() req: { user: { userId: string } },
+  ) {
+    await assertDeletePassword(this.prisma, deletePassword);
+    return this.service.remove(id, req.user.userId);
   }
 }

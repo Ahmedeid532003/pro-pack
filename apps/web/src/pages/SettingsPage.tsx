@@ -47,6 +47,8 @@ export function SettingsPage() {
   const [periodLog, setPeriodLog] = useState<PeriodLog[]>([]);
   const [reopenKey, setReopenKey] = useState('');
   const [reopenReason, setReopenReason] = useState('');
+  const [deletePasswordSet, setDeletePasswordSet] = useState(false);
+  const [deletePwd, setDeletePwd] = useState({ current: '', next: '', confirm: '' });
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,7 @@ export function SettingsPage() {
         setTaxNumber(s.taxNumber || '');
         setCommercialRegister(s.commercialRegister || '');
         setCompanyAddress(s.companyAddress || '');
+        setDeletePasswordSet(s.deletePasswordSet === '1');
       }).catch(() => undefined);
       if (isAdmin) {
         api<SettingsUser[]>('/users').then(setUsers).catch(() => setUsers([]));
@@ -76,6 +79,31 @@ export function SettingsPage() {
     })();
     return () => { cancelled = true; };
   }, [user?.role, isAdmin]);
+
+  async function saveDeletePassword() {
+    if (deletePwd.next.length < 4) {
+      toast.error('كلمة السر 4 حروف أو أرقام على الأقل');
+      return;
+    }
+    if (deletePwd.next !== deletePwd.confirm) {
+      toast.error('تأكيد كلمة السر مش مطابق');
+      return;
+    }
+    setBusy('settings');
+    try {
+      await api('/settings/delete-password', {
+        method: 'POST',
+        body: JSON.stringify({ password: deletePwd.next, currentPassword: deletePwd.current || undefined }),
+      });
+      setDeletePasswordSet(true);
+      setDeletePwd({ current: '', next: '', confirm: '' });
+      toast.success('تم حفظ كلمة سر حذف الفواتير');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر حفظ كلمة السر');
+    } finally {
+      setBusy('');
+    }
+  }
 
   async function closePeriod(row: PeriodRow) {
     const ok = await confirm({
@@ -297,6 +325,38 @@ export function SettingsPage() {
           </Card>
         )}
       </div>
+
+      {isAdmin && (
+        <Card className="mt-4">
+          <CardHeader
+            title="كلمة سر حذف الفواتير"
+            subtitle={deletePasswordSet ? 'متعيّنة — حذف أي فاتورة بيع أو شراء بيطلبها' : 'مش متعيّنة — حذف الفواتير متوقف لحد ما تعيّنها'}
+            icon={ShieldCheck}
+          />
+          <div className="grid gap-3 sm:grid-cols-3">
+            {deletePasswordSet && (
+              <div>
+                <Label>كلمة السر الحالية</Label>
+                <Input type="password" autoComplete="off" value={deletePwd.current} onChange={(e) => setDeletePwd({ ...deletePwd, current: e.target.value })} />
+              </div>
+            )}
+            <div>
+              <Label>{deletePasswordSet ? 'كلمة السر الجديدة' : 'كلمة السر'}</Label>
+              <Input type="password" autoComplete="new-password" value={deletePwd.next} onChange={(e) => setDeletePwd({ ...deletePwd, next: e.target.value })} />
+            </div>
+            <div>
+              <Label>تأكيد كلمة السر</Label>
+              <Input type="password" autoComplete="new-password" value={deletePwd.confirm} onChange={(e) => setDeletePwd({ ...deletePwd, confirm: e.target.value })} />
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            عند حذف فاتورة: المخزون يرجع زي ما كان، وأي مبلغ اتدفع أو اتحصّل يرجع للخزنة ويتسجّل كحركة «إلغاء فاتورة» في حركات الخزنة.
+          </p>
+          <Button className="mt-3" onClick={saveDeletePassword} disabled={busy === 'settings'}>
+            <Save size={16} /> {deletePasswordSet ? 'تغيير كلمة السر' : 'حفظ كلمة السر'}
+          </Button>
+        </Card>
+      )}
 
       {isAdmin && (
         <Card className="mt-4">

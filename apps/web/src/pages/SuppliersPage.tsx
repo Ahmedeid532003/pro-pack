@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, FileText, Hash, MapPin, Pencil, Phone, Plus, Printer, Truck, Wallet, Warehouse } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, FileText, Hash, MapPin, Pencil, Phone, Plus, Printer, Trash2, Truck, Wallet, Warehouse } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { downloadExcelBuffer } from '../lib/docExport';
 import { api, formatDate, formatMoney, initialQuery } from '../lib/api';
 import { urgentInvoiceDate } from '../lib/due';
 import { DueAmount } from '../components/DueAmount';
 import { useColumns } from '../lib/columns';
-import { useToast } from '../lib/feedback';
+import { useConfirm, useToast } from '../lib/feedback';
+import { useAccess } from '../lib/auth';
 import { FilterOption, IconAction, ListBar } from '../components/ListBar';
 import { WarehouseMultiSelect } from '../components/WarehouseMultiSelect';
 import { StatementLedger } from '../components/StatementLedger';
@@ -41,6 +42,8 @@ const SUPPLIER_VIEW = 'm5azen.suppliersView';
 
 export function SuppliersPage() {
   const toast = useToast();
+  const confirm = useConfirm();
+  const canDelete = useAccess().can('suppliers', 'delete');
   const [items, setItems] = useState<Supplier[]>([]);
   const [listPage, setListPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -64,6 +67,23 @@ export function SuppliersPage() {
     { id: 'name', label: 'الاسم' },
     { id: 'code', label: 'الكود' },
   ]);
+
+  async function removeSupplier(row: Supplier) {
+    const ok = await confirm({
+      title: 'حذف المورد',
+      message: `حذف المورد ${row.name} نهائيًا؟ لو عليه فواتير أو رصيد الحذف هيتمنع، وتقدر توقفه بدل الحذف.`,
+      confirmLabel: 'حذف',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/suppliers/${row.id}`, { method: 'DELETE' });
+      toast.success('تم حذف المورد');
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حذف المورد');
+    }
+  }
 
   async function load() {
     const params = new URLSearchParams({ page: String(listPage), pageSize: String(pageSize) });
@@ -243,6 +263,7 @@ export function SuppliersPage() {
                     <div className="flex gap-1">
                       <IconAction label="تعديل" onClick={() => openEdit(row)}><Pencil size={14} /></IconAction>
                       <IconAction label="كشف حساب" onClick={() => showStatement(row.id)}><FileText size={14} /></IconAction>
+                      {canDelete && <IconAction label="حذف" danger onClick={() => removeSupplier(row)}><Trash2 size={14} /></IconAction>}
                     </div>
                   </div>
                 </div>
@@ -283,6 +304,7 @@ export function SuppliersPage() {
                       <div className="flex gap-1">
                         <IconAction label="تعديل" onClick={() => openEdit(row)}><Pencil size={14} /></IconAction>
                         <IconAction label="كشف حساب" onClick={() => showStatement(row.id)}><FileText size={14} /></IconAction>
+                        {canDelete && <IconAction label="حذف" danger onClick={() => removeSupplier(row)}><Trash2 size={14} /></IconAction>}
                       </div>
                     </Td>
                   </tr>

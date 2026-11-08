@@ -135,6 +135,35 @@ export class CustomersService implements OnModuleInit {
     return this.prisma.customer.updateMany({ where: { id: { in: unique } }, data: { isActive } }).then((result) => ({ updated: result.count }));
   }
 
+  async remove(id: string) {
+    const customer = await this.findOne(id);
+    if (customer.code === 'WALKIN') throw new BadRequestException('العميل السريع مستخدم في نقطة البيع ولا يُحذف');
+    const [invoices, receipts, returns, checks, documents, prodOrders] = await Promise.all([
+      this.prisma.salesInvoice.count({ where: { customerId: id } }),
+      this.prisma.receipt.count({ where: { customerId: id } }),
+      this.prisma.salesReturn.count({ where: { customerId: id } }),
+      this.prisma.bankCheck.count({ where: { customerId: id } }),
+      this.prisma.tradeDocument.count({ where: { customerId: id } }),
+      this.prisma.customerProdOrder.count({ where: { customerId: id } }),
+    ]);
+    const blockers = [
+      invoices && `${invoices} فاتورة بيع`,
+      receipts && `${receipts} تحصيل`,
+      returns && `${returns} مرتجع`,
+      checks && `${checks} شيك`,
+      documents && `${documents} عرض/أمر`,
+      prodOrders && `${prodOrders} أوردر إنتاج`,
+    ].filter(Boolean);
+    if (blockers.length) {
+      throw new BadRequestException(`لا يمكن حذف العميل لأن عليه ${blockers.join(' و ')}. احذفها الأول أو أوقف العميل`);
+    }
+    if (Math.abs(customer.balance) > 0.009) {
+      throw new BadRequestException('لا يمكن حذف عميل رصيده مش صفر — سوّي الرصيد الأول أو أوقف العميل');
+    }
+    await this.prisma.customer.delete({ where: { id } });
+    return { ok: true };
+  }
+
   async update(id: string, data: Partial<{
     code: string; name: string; phone: string; email: string; address: string;
     creditLimit: number; priceList: PriceList; notes: string; isActive: boolean;

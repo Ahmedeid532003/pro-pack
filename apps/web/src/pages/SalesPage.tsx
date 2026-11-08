@@ -13,6 +13,7 @@ import { productsForWarehouse } from '../lib/productWarehouse';
 import { optionalNumber, sizeText } from '../lib/size';
 import { TenderEditor, type PayMethodOption, type TenderPart } from '../components/TenderEditor';
 import { useConfirm, usePrompt, useToast } from '../lib/feedback';
+import { deleteInvoiceWithPassword } from '../lib/deleteInvoice';
 import { useColumns } from '../lib/columns';
 import { IconAction, ListBar } from '../components/ListBar';
 import {
@@ -480,15 +481,8 @@ export function SalesPage() {
   }
 
   async function removeInvoice(id: string) {
-    const ok = await confirm({
-      title: 'حذف فاتورة البيع',
-      message: 'حذف الفاتورة وإلغاء أثرها على المخزون والحسابات؟',
-      confirmLabel: 'حذف',
-      danger: true,
-    });
-    if (!ok) return;
     try {
-      await api(`/sales/${id}`, { method: 'DELETE' });
+      if (!(await deleteInvoiceWithPassword(promptText, `/sales/${id}`, 'فاتورة البيع'))) return;
       if (view?.id === id) setView(null);
       toast.success('تم حذف الفاتورة');
       load();

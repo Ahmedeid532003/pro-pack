@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { IsNumber, IsObject, IsString, MinLength } from 'class-validator';
+import { IsNumber, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
 import { Role } from '@prisma/client';
 import { SettingsService } from './settings.service';
 import { Roles } from '../common/guards';
@@ -18,6 +18,11 @@ class UnlockSettingsDto {
 
 class EditPasswordDto {
   @IsString() @MinLength(4) password!: string;
+}
+
+class DeletePasswordDto {
+  @IsString() @MinLength(4) password!: string;
+  @IsOptional() @IsString() currentPassword?: string;
 }
 
 class ClosePeriodDto {
@@ -38,6 +43,12 @@ export class SettingsController {
   @UseGuards(SettingsGateGuard)
   setEditPassword(@Body() dto: EditPasswordDto) {
     return this.service.setEditPassword(dto.password);
+  }
+
+  @Post('delete-password')
+  @Roles(Role.ADMIN)
+  setDeletePassword(@Body() dto: DeletePasswordDto) {
+    return this.service.setDeletePassword(dto.password, dto.currentPassword);
   }
 
   @Post('edit-unlock')

@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { periodLabel, periodParts } from './period-lock';
+import { DELETE_PASSWORD_KEY } from '../common/delete-password';
 
 @Injectable()
 export class SettingsService {
@@ -14,7 +15,7 @@ export class SettingsService {
     const settings = await this.prisma.setting.findMany();
     const map: Record<string, string> = {};
     for (const s of settings) {
-      if (s.key === 'editPasswordHash') continue;
+      if (s.key === 'editPasswordHash' || s.key === DELETE_PASSWORD_KEY) continue;
       map[s.key] = s.value;
     }
     return {
@@ -22,7 +23,17 @@ export class SettingsService {
       apiUrl: map.apiUrl || '',
       ...map,
       editPasswordSet: settings.some((row) => row.key === 'editPasswordHash' && row.value) ? '1' : '0',
+      deletePasswordSet: settings.some((row) => row.key === DELETE_PASSWORD_KEY && row.value) ? '1' : '0',
     };
+  }
+
+  async setDeletePassword(password: string, currentPassword?: string) {
+    const row = await this.prisma.setting.findUnique({ where: { key: DELETE_PASSWORD_KEY } });
+    if (row?.value && !(currentPassword && await bcrypt.compare(currentPassword, row.value))) {
+      throw new BadRequestException('اكتب كلمة سر الحذف الحالية صح عشان تغيّرها');
+    }
+    await this.upsert(DELETE_PASSWORD_KEY, await bcrypt.hash(password, 10));
+    return { ok: true };
   }
 
   async setEditPassword(password: string) {

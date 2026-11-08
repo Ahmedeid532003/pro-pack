@@ -29,6 +29,9 @@ type PromptOptions = {
   message?: string;
   defaultValue?: string;
   confirmLabel?: string;
+  inputType?: 'text' | 'password';
+  placeholder?: string;
+  danger?: boolean;
 };
 
 type FeedbackCtx = {
@@ -129,8 +132,8 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         <div className="modal-backdrop fixed inset-0 z-[90] grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
           <div className="modal-panel w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-black/5" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start gap-4">
-              <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl ${dialog.kind === 'confirm' && dialog.options.danger ? 'bg-rose-50 text-rose-600 ring-8 ring-rose-50/60' : 'bg-brand-50 text-brand-700 ring-8 ring-brand-50/60'}`}>
-                {dialog.kind === 'confirm' && dialog.options.danger ? <TriangleAlert size={22} /> : <Info size={22} />}
+              <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl ${dialog.options.danger ? 'bg-rose-50 text-rose-600 ring-8 ring-rose-50/60' : 'bg-brand-50 text-brand-700 ring-8 ring-brand-50/60'}`}>
+                {dialog.options.danger ? <TriangleAlert size={22} /> : <Info size={22} />}
               </span>
               <div className="min-w-0 flex-1 pt-1">
                 <h2 className="text-lg font-extrabold text-slate-900">{dialog.options.title}</h2>
@@ -140,6 +143,9 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             {dialog.kind === 'prompt' && (
               <input
                 autoFocus
+                type={dialog.options.inputType || 'text'}
+                placeholder={dialog.options.placeholder}
+                autoComplete={dialog.options.inputType === 'password' ? 'off' : undefined}
                 className="mt-5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10"
                 value={dialog.value}
                 onChange={(event) => setDialog({ ...dialog, value: event.target.value })}
@@ -155,7 +161,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               </button>
               <button
                 autoFocus={dialog.kind === 'confirm'}
-                className={`h-10 rounded-xl px-5 text-sm font-bold text-white shadow-sm ${dialog.kind === 'confirm' && dialog.options.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-brand-700 hover:bg-brand-800'}`}
+                className={`h-10 rounded-xl px-5 text-sm font-bold text-white shadow-sm ${dialog.options.danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-brand-700 hover:bg-brand-800'}`}
                 onClick={() => closeDialog(dialog.kind === 'confirm' ? true : dialog.value)}
               >
                 {dialog.options.confirmLabel || (dialog.kind === 'confirm' ? 'تأكيد' : 'متابعة')}
