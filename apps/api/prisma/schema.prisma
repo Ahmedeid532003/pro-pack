@@ -339,6 +339,7 @@ model Customer {
   warehouses    CustomerWarehouse[]
   contracts     CustomerContract[]
   prodOrders    CustomerProdOrder[]
+  deliveryNotes DeliveryNote[]
 }
 
 /// تعاقد عميل مع المصنع — للطباعة مع توقيع العميل والمدير
@@ -474,6 +475,7 @@ model SalesInvoice {
   lines     SalesInvoiceLine[]
   receipts  Receipt[]
   returns   SalesReturn[]
+  deliveryNotes DeliveryNote[]
 
   @@index([invoiceDate])
   @@index([status])
@@ -888,6 +890,41 @@ model CustomerProdOrder {
   @@index([customerId])
   @@index([orderDate])
   @@index([status])
+}
+
+/// إذن تسليم بضاعة — مستند تسليم للطباعة بتوقيع المسلِّم والمستلِم (لا يحرك المخزون)
+model DeliveryNote {
+  id             String   @id @default(cuid())
+  number         String   @unique
+  noteDate       DateTime @default(now())
+  recipientName  String
+  customerId     String?
+  salesInvoiceId String?
+  deliveredBy    String?
+  notes          String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customer     Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  salesInvoice SalesInvoice?      @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  lines        DeliveryNoteLine[]
+
+  @@index([noteDate])
+  @@index([customerId])
+}
+
+model DeliveryNoteLine {
+  id          String @id @default(cuid())
+  noteId      String
+  description String
+  quantity    Float?
+  weight      Float?
+  sortOrder   Int    @default(0)
+
+  note DeliveryNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
 }
 
 model CustomerProdOrderLine {

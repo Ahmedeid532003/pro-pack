@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Printer, Eye, ShoppingCart, Receipt, Trash2, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Printer, Eye, ShoppingCart, Receipt, Trash2, Pencil, PackageCheck } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { exportInvoiceExcel } from '../lib/docExport';
 import { api, formatDate, formatMoney, initialQuery, productImageUrl } from '../lib/api';
@@ -1155,6 +1156,9 @@ export function SalesPage() {
                   ],
                 })}
               />
+              <Link to={`/delivery-notes?invoice=${view.id}`}>
+                <Button variant="secondary"><PackageCheck size={14} /> إذن تسليم</Button>
+              </Link>
               <Button variant="secondary" onClick={() => editInvoice(view)}><Pencil size={14} /> تعديل</Button>
               <Button variant="danger" onClick={() => removeInvoice(view.id)}><Trash2 size={14} /> حذف</Button>
             </div>

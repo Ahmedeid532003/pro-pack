@@ -22,6 +22,7 @@ const ProductionPage = lazy(() => import('./pages/ProductionPage').then((m) => (
 const ProdOrdersPage = lazy(() => import('./pages/ProdOrdersPage').then((m) => ({ default: m.ProdOrdersPage })));
 const CostingPage = lazy(() => import('./pages/CostingPage').then((m) => ({ default: m.CostingPage })));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })));
+const DeliveryNotesPage = lazy(() => import('./pages/DeliveryNotesPage').then((m) => ({ default: m.DeliveryNotesPage })));
 const FinancePage = lazy(() => import('./pages/FinancePage').then((m) => ({ default: m.FinancePage })));
 const HrPage = lazy(() => import('./pages/HrPage').then((m) => ({ default: m.HrPage })));
 const PartnersPage = lazy(() => import('./pages/PartnersPage').then((m) => ({ default: m.PartnersPage })));
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="purchases" element={<PageGuard page="purchases"><PurchasesPage /></PageGuard>} />
           <Route path="returns" element={<PageGuard page="returns"><ReturnsPage /></PageGuard>} />
           <Route path="documents" element={<PageGuard page="documents"><DocumentsPage /></PageGuard>} />
+          <Route path="delivery-notes" element={<PageGuard page="documents"><DeliveryNotesPage /></PageGuard>} />
           <Route path="finance" element={<PageGuard page="finance"><FinancePage /></PageGuard>} />
           <Route path="hr" element={<PageGuard page="hr"><HrPage /></PageGuard>} />
           <Route path="partners" element={<PageGuard page="partners"><PartnersPage /></PageGuard>} />
