@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ClipboardPlus, Plus, Trash2 } from 'lucide-react';
+import { ClipboardPlus, Plus, Printer, Trash2 } from 'lucide-react';
 import { api, formatDate, formatMoney } from '../lib/api';
 import { useToast } from '../lib/feedback';
+import { optionalNumber, sizeText } from '../lib/size';
 import {
   Badge,
   Button,
@@ -14,14 +15,24 @@ import {
   NumberInput,
   PageHeader,
   PageSkeleton,
+  PrintHeader,
   Select,
   Table,
   Td,
   Th,
 } from '../components/ui';
 
-type Customer = { id: string; name: string; code: string; phone?: string | null };
-type Product = { id: string; name: string; sku: string };
+type Customer = { id: string; name: string; code: string; phone?: string | null; address?: string | null };
+type Product = { id: string; name: string; sku: string; width?: number | null; thickness?: number | null };
+type ProdOrderLine = {
+  id: string;
+  description: string;
+  width?: number | null;
+  thickness?: number | null;
+  quantity: number;
+  unitPrice: number;
+  product?: { id: string; name: string; sku: string; unit?: string } | null;
+};
 type ProdOrder = {
   id: string;
   number: string;
@@ -34,6 +45,16 @@ type ProdOrder = {
   status: string;
   customer: Customer;
   product?: Product | null;
+  lines: ProdOrderLine[];
+};
+
+type LineForm = {
+  productId: string;
+  description: string;
+  width: number | '';
+  thickness: number | '';
+  quantity: number | '';
+  unitPrice: number | '';
 };
 
 const STATUS: Record<string, string> = {
@@ -45,6 +66,13 @@ const STATUS: Record<string, string> = {
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+const emptyLine = (): LineForm => ({ productId: '', description: '', width: '', thickness: '', quantity: '', unitPrice: '' });
+const emptyForm = () => ({ customerId: '', orderDate: today(), deliveryDate: '', notes: '', lines: [emptyLine()] });
+
+function orderLines(order: ProdOrder): ProdOrderLine[] {
+  if (order.lines?.length) return order.lines;
+  return [{ id: order.id, description: order.description, quantity: order.quantity, unitPrice: order.unitPrice, product: order.product }];
+}
 
 export function ProdOrdersPage() {
   const toast = useToast();
@@ -55,16 +83,8 @@ export function ProdOrdersPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
-    customerId: '',
-    description: '',
-    quantity: '' as number | '',
-    unitPrice: '' as number | '',
-    orderDate: today(),
-    deliveryDate: '',
-    notes: '',
-    productId: '',
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [printOrder, setPrintOrder] = useState<ProdOrder | null>(null);
 
   async function load() {
     setError('');
@@ -86,31 +106,55 @@ export function ProdOrdersPage() {
 
   useEffect(() => { load().catch(() => undefined); }, []);
 
+  function setLine(index: number, patch: Partial<LineForm>) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line, i) => (i === index ? { ...line, ...patch } : line)),
+    }));
+  }
+
+  function pickProduct(index: number, productId: string) {
+    const product = products.find((p) => p.id === productId);
+    const line = form.lines[index];
+    setLine(index, {
+      productId,
+      description: line.description || product?.name || '',
+      width: line.width === '' && product?.width != null ? product.width : line.width,
+      thickness: line.thickness === '' && product?.thickness != null ? product.thickness : line.thickness,
+    });
+  }
+
   async function save() {
     if (!form.customerId) return toast.error('اختر العميل');
-    if (!form.description.trim()) return toast.error('اكتب البيان');
-    if (!(Number(form.quantity) > 0)) return toast.error('أدخل الكمية');
+    const lines = form.lines.filter((line) => line.description.trim() || line.quantity !== '');
+    if (!lines.length) return toast.error('أضف بند واحد على الأقل');
+    for (const [index, line] of lines.entries()) {
+      if (!line.description.trim()) return toast.error(`اكتب بيان البند ${index + 1}`);
+      if (!(Number(line.quantity) > 0)) return toast.error(`أدخل كمية البند ${index + 1}`);
+    }
     setBusy(true);
     try {
-      await api('/production/prod-orders', {
+      const created = await api<ProdOrder>('/production/prod-orders', {
         method: 'POST',
         body: JSON.stringify({
           customerId: form.customerId,
-          description: form.description.trim(),
-          quantity: Number(form.quantity),
-          unitPrice: form.unitPrice === '' ? 0 : Number(form.unitPrice),
           orderDate: form.orderDate || undefined,
           deliveryDate: form.deliveryDate || undefined,
           notes: form.notes.trim() || undefined,
-          productId: form.productId || undefined,
+          lines: lines.map((line) => ({
+            productId: line.productId || undefined,
+            description: line.description.trim(),
+            width: optionalNumber(line.width),
+            thickness: optionalNumber(line.thickness),
+            quantity: Number(line.quantity),
+            unitPrice: line.unitPrice === '' ? 0 : Number(line.unitPrice),
+          })),
         }),
       });
-      toast.success('تم إنشاء أوردر الإنتاج');
+      toast.success('تم حفظ أوردر الإنتاج');
       setOpen(false);
-      setForm({
-        customerId: '', description: '', quantity: '', unitPrice: '',
-        orderDate: today(), deliveryDate: '', notes: '', productId: '',
-      });
+      setForm(emptyForm());
+      setPrintOrder(created);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر الحفظ');
@@ -144,13 +188,16 @@ export function ProdOrdersPage() {
   if (!loaded) return <PageSkeleton />;
   if (error) return <ErrorState text={error} onRetry={() => load()} />;
 
+  const printLines = printOrder ? orderLines(printOrder) : [];
+  const printTotal = printLines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
+
   return (
     <div>
       <PageHeader
         title="أوردر إنتاج"
-        subtitle="طلب تشغيل من العميل: البيان · الكمية · تاريخ الطلب · تاريخ الاستلام"
+        subtitle="طلب تشغيل من العميل: بنود متعددة بالمقاس والكمية · تاريخ الطلب والاستلام · طباعة"
         actions={
-          <Button onClick={() => setOpen(true)}>
+          <Button onClick={() => { setForm(emptyForm()); setOpen(true); }}>
             <Plus size={16} /> أوردر جديد
           </Button>
         }
@@ -158,16 +205,15 @@ export function ProdOrdersPage() {
 
       <Card>
         {rows.length === 0 ? (
-          <Empty text="لا أوردرات بعد" hint="أنشئ أوردر إنتاج باختيار العميل والبيان والكمية" />
+          <Empty text="لا أوردرات بعد" hint="أنشئ أوردر إنتاج باختيار العميل وإضافة البنود" />
         ) : (
           <Table>
             <thead>
               <tr>
                 <Th>الرقم</Th>
                 <Th>العميل</Th>
-                <Th>البيان</Th>
-                <Th>الكمية</Th>
-                <Th>السعر</Th>
+                <Th>البنود</Th>
+                <Th>إجمالي الكمية</Th>
                 <Th>تاريخ الطلب</Th>
                 <Th>تاريخ الاستلام</Th>
                 <Th>الحالة</Th>
@@ -177,15 +223,21 @@ export function ProdOrdersPage() {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <Td className="font-mono text-xs font-bold" dir="ltr">{row.number}</Td>
+                  <Td className="font-mono text-xs font-bold"><span dir="ltr">{row.number}</span></Td>
                   <Td className="font-bold">{row.customer.name}</Td>
                   <Td>
-                    <div className="font-semibold">{row.description}</div>
-                    {row.notes && <div className="text-xs text-muted">{row.notes}</div>}
-                    {row.product && <div className="text-xs text-muted">صنف: {row.product.name}</div>}
+                    <div className="space-y-0.5">
+                      {orderLines(row).map((line) => (
+                        <div key={line.id} className="text-sm">
+                          <span className="font-semibold">{line.description}</span>
+                          {sizeText(line.width, line.thickness) && <span className="text-xs text-muted"> · {sizeText(line.width, line.thickness)}</span>}
+                          <span className="text-xs text-muted"> · {line.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {row.notes && <div className="mt-1 text-xs text-muted">{row.notes}</div>}
                   </Td>
                   <Td>{row.quantity}</Td>
-                  <Td>{row.unitPrice ? formatMoney(row.unitPrice) : '—'}</Td>
                   <Td>{formatDate(row.orderDate)}</Td>
                   <Td>{row.deliveryDate ? formatDate(row.deliveryDate) : '—'}</Td>
                   <Td>
@@ -200,13 +252,24 @@ export function ProdOrdersPage() {
                     </Select>
                   </Td>
                   <Td>
-                    <button
-                      type="button"
-                      className="grid h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      onClick={() => remove(row.id)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        title="طباعة"
+                        className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-brand-700"
+                        onClick={() => setPrintOrder(row)}
+                      >
+                        <Printer size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        title="حذف"
+                        className="grid h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        onClick={() => remove(row.id)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </Td>
                 </tr>
               ))}
@@ -219,7 +282,7 @@ export function ProdOrdersPage() {
         <div className="space-y-3">
           <div className="flex items-center gap-2 rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-900">
             <ClipboardPlus size={16} />
-            تاريخ الطلب يتملّى تلقائيًا — عدّله لو احتجت
+            أضف بند أو أكتر — العرض والسمك اختياريين وبالسنتيمتر
           </div>
           <Field label="العميل">
             <Select value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
@@ -229,21 +292,52 @@ export function ProdOrdersPage() {
               ))}
             </Select>
           </Field>
-          <Field label="البيان">
-            <Input
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="مثال: طباعة أكياس 50 كجم — 3 ألوان"
-            />
-          </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="الكمية">
-              <NumberInput value={form.quantity} onValueChange={(v) => setForm({ ...form, quantity: v })} />
-            </Field>
-            <Field label="السعر المتوقع (اختياري)">
-              <NumberInput value={form.unitPrice} onValueChange={(v) => setForm({ ...form, unitPrice: v })} />
-            </Field>
+
+          <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-extrabold text-slate-800">البنود</div>
+              <Button type="button" variant="secondary" onClick={() => setForm({ ...form, lines: [...form.lines, emptyLine()] })}>
+                <Plus size={14} /> بند
+              </Button>
+            </div>
+            {form.lines.map((line, index) => (
+              <div key={index} className="grid gap-2 rounded-lg bg-slate-50 p-2 sm:grid-cols-12">
+                <div className="sm:col-span-3">
+                  <Select value={line.productId} onChange={(e) => pickProduct(index, e.target.value)}>
+                    <option value="">صنف (اختياري)</option>
+                    {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </Select>
+                </div>
+                <div className="sm:col-span-3">
+                  <Input value={line.description} onChange={(e) => setLine(index, { description: e.target.value })} placeholder="البيان" />
+                </div>
+                <div className="sm:col-span-1">
+                  <NumberInput value={line.width} onValueChange={(width) => setLine(index, { width })} placeholder="العرض" />
+                </div>
+                <div className="sm:col-span-1">
+                  <NumberInput value={line.thickness} onValueChange={(thickness) => setLine(index, { thickness })} placeholder="السمك" />
+                </div>
+                <div className="sm:col-span-2">
+                  <NumberInput value={line.quantity} onValueChange={(quantity) => setLine(index, { quantity })} placeholder="الكمية" />
+                </div>
+                <div className="sm:col-span-1">
+                  <NumberInput value={line.unitPrice} onValueChange={(unitPrice) => setLine(index, { unitPrice })} placeholder="السعر" />
+                </div>
+                <div className="flex items-center justify-center sm:col-span-1">
+                  <button
+                    type="button"
+                    title="حذف البند"
+                    disabled={form.lines.length === 1}
+                    className="grid h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                    onClick={() => setForm({ ...form, lines: form.lines.filter((_, i) => i !== index) })}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="تاريخ الطلب">
               <Input type="date" value={form.orderDate} onChange={(e) => setForm({ ...form, orderDate: e.target.value })} />
@@ -252,19 +346,74 @@ export function ProdOrdersPage() {
               <Input type="date" value={form.deliveryDate} onChange={(e) => setForm({ ...form, deliveryDate: e.target.value })} />
             </Field>
           </div>
-          <Field label="صنف مرتبط (اختياري)">
-            <Select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value })}>
-              <option value="">بدون</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
-          </Field>
           <Field label="ملاحظات">
             <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </Field>
-          <Button className="w-full" disabled={busy} onClick={save}>حفظ الأوردر</Button>
+          <Button className="w-full" disabled={busy} onClick={save}>
+            <Printer size={16} /> حفظ وطباعة
+          </Button>
         </div>
+      </Modal>
+
+      <Modal open={!!printOrder} onClose={() => setPrintOrder(null)} title={`أوردر إنتاج ${printOrder?.number || ''}`} wide>
+        {printOrder && (
+          <div>
+            <div className="mb-4 flex justify-end no-print">
+              <Button onClick={() => window.print()}><Printer size={16} /> طباعة / PDF</Button>
+            </div>
+            <PrintHeader title={`أوردر إنتاج رقم ${printOrder.number}`} subtitle={STATUS[printOrder.status] || printOrder.status} />
+            <div className="mb-4 grid gap-2 text-sm sm:grid-cols-2">
+              <div>العميل: <b>{printOrder.customer.name}</b></div>
+              <div>الهاتف: <b>{printOrder.customer.phone || '—'}</b></div>
+              <div>تاريخ الطلب: <b>{formatDate(printOrder.orderDate)}</b></div>
+              <div>تاريخ الاستلام: <b>{printOrder.deliveryDate ? formatDate(printOrder.deliveryDate) : '—'}</b></div>
+            </div>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>م</Th>
+                  <Th>البيان</Th>
+                  <Th>العرض (سم)</Th>
+                  <Th>السمك (سم)</Th>
+                  <Th>الكمية</Th>
+                  <Th>السعر</Th>
+                  <Th>الإجمالي</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {printLines.map((line, index) => (
+                  <tr key={line.id}>
+                    <Td>{index + 1}</Td>
+                    <Td className="font-bold">
+                      {line.description}
+                      {line.product && line.product.name !== line.description && (
+                        <div className="text-xs font-normal text-muted">{line.product.name}</div>
+                      )}
+                    </Td>
+                    <Td>{line.width ?? '—'}</Td>
+                    <Td>{line.thickness ?? '—'}</Td>
+                    <Td className="tabular-nums">{line.quantity}</Td>
+                    <Td className="tabular-nums">{line.unitPrice ? formatMoney(line.unitPrice) : '—'}</Td>
+                    <Td className="tabular-nums font-bold">{line.unitPrice ? formatMoney(line.quantity * line.unitPrice) : '—'}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            <div className="mt-3 flex flex-wrap justify-between gap-2 text-sm">
+              <div>إجمالي الكمية: <b>{printLines.reduce((sum, line) => sum + line.quantity, 0)}</b></div>
+              {printTotal > 0 && <Badge tone="brand">الإجمالي: {formatMoney(printTotal)}</Badge>}
+            </div>
+            {printOrder.notes && <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm">ملاحظات: {printOrder.notes}</div>}
+            <div className="mt-12 grid grid-cols-2 gap-8 text-center text-sm font-bold text-slate-700">
+              {['توقيع العميل', 'توقيع المسؤول'].map((role) => (
+                <div key={role}>
+                  <div className="mb-10">{role}</div>
+                  <div className="border-t border-slate-400 pt-1 text-xs font-semibold text-slate-500">الاسم / التوقيع</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

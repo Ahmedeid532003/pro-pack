@@ -5,7 +5,11 @@ import { join, resolve } from 'path';
 import { autoCode } from '../common/auto-code';
 import { PrismaService } from '../prisma/prisma.service';
 import { pageResult, readPage } from '../common/paging';
+import { productSizeFilter, productSizeTerms } from '../common/size-search';
 import { rowsFromProductFile } from './product-file';
+
+export const PRODUCT_UNITS_KEY = 'product.units';
+const DEFAULT_UNITS = ['كيلو', 'متر', 'عدد', 'بكرة', 'لفة', 'طن'];
 
 @Injectable()
 export class ProductsService {
@@ -86,6 +90,28 @@ export class ProductsService {
     }
   }
 
+  async listUnits() {
+    const row = await this.prisma.setting.findUnique({ where: { key: PRODUCT_UNITS_KEY } });
+    if (!row) return DEFAULT_UNITS;
+    try {
+      const parsed = JSON.parse(row.value);
+      return Array.isArray(parsed) ? parsed.map(String) : DEFAULT_UNITS;
+    } catch {
+      return DEFAULT_UNITS;
+    }
+  }
+
+  async saveUnits(units: string[]) {
+    const clean = [...new Set(units.map((unit) => unit.trim()).filter(Boolean))];
+    if (!clean.length) throw new BadRequestException('لازم تفضل وحدة قياس واحدة على الأقل');
+    await this.prisma.setting.upsert({
+      where: { key: PRODUCT_UNITS_KEY },
+      create: { key: PRODUCT_UNITS_KEY, value: JSON.stringify(clean) },
+      update: { value: JSON.stringify(clean) },
+    });
+    return clean;
+  }
+
   async findAll(query?: {
     search?: string;
     page?: string;
@@ -93,6 +119,8 @@ export class ProductsService {
     filter?: string;
     warehouseId?: string;
     warehouseIds?: string[] | null;
+    width?: string;
+    thickness?: string;
   }) {
     const page = readPage(query);
     const searchWhere = query?.search
@@ -102,13 +130,14 @@ export class ProductsService {
             { sku: { contains: query.search } },
             { barcode: { contains: query.search } },
             { brand: { contains: query.search } },
+            ...productSizeTerms(query.search),
           ],
         }
       : undefined;
     const warehouseWhere = this.warehouseScope(query?.warehouseId, query?.warehouseIds);
-    const where = searchWhere && warehouseWhere
-      ? { AND: [searchWhere, warehouseWhere] }
-      : searchWhere || warehouseWhere;
+    const sizeWhere = productSizeFilter(query?.width, query?.thickness);
+    const parts = [searchWhere, warehouseWhere, sizeWhere].filter(Boolean) as object[];
+    const where = parts.length > 1 ? { AND: parts } : parts[0];
     const include = this.productInclude();
     if (!page && (!query?.filter || query.filter === 'all')) return this.prisma.product.findMany({ where, include, orderBy: { name: 'asc' } });
     const light = await this.prisma.product.findMany({
@@ -176,6 +205,9 @@ export class ProductsService {
     packUnit?: string | null;
     packSize?: number;
     packWeight?: number | null;
+    width?: number | null;
+    thickness?: number | null;
+    weight?: number | null;
     fieldValues?: { fieldId: string; value: string }[];
     warehouseIds?: string[];
   }) {
@@ -217,6 +249,9 @@ export class ProductsService {
       packUnit?: string | null;
       packSize?: number;
       packWeight?: number | null;
+      width?: number | null;
+      thickness?: number | null;
+      weight?: number | null;
       fieldValues?: { fieldId: string; value: string }[];
       warehouseIds?: string[];
     },

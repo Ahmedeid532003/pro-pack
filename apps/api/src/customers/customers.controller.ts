@@ -46,6 +46,8 @@ class CreateContractDto {
   @IsOptional() @IsString() title?: string;
   @IsOptional() @IsString() terms?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
 }
 
 @Controller('customers')

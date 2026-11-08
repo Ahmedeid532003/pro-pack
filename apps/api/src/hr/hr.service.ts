@@ -16,9 +16,11 @@ import {
   dateOnly,
   DEFAULT_HR_SETTINGS,
   eachYmd,
+  employeeHours,
   HR_SETTINGS_KEY,
   isWeekend,
   nextSeq,
+  overtimeRates,
   parseHrSettings,
   parseRange,
   roundMoney,
@@ -133,6 +135,7 @@ export class HrService {
     commissionPercent?: number;
     phone?: string;
     hireDate?: string;
+    workHours?: number | null;
     notes?: string;
     isActive?: boolean;
   }) {
@@ -150,6 +153,7 @@ export class HrService {
           commissionPercent: Math.max(0, Number(data.commissionPercent) || 0),
           phone: data.phone?.trim() || null,
           hireDate: data.hireDate ? dateOnly(data.hireDate) : null,
+          workHours: Number(data.workHours) > 0 ? Number(data.workHours) : null,
           notes: data.notes?.trim() || null,
           isActive: data.isActive !== false,
         },
@@ -173,6 +177,7 @@ export class HrService {
       commissionPercent: number;
       phone: string | null;
       hireDate: string | null;
+      workHours: number | null;
       notes: string | null;
       isActive: boolean;
     }>,
@@ -193,6 +198,9 @@ export class HrService {
           ...(data.phone !== undefined ? { phone: data.phone?.trim() || null } : {}),
           ...(data.hireDate !== undefined
             ? { hireDate: data.hireDate ? dateOnly(data.hireDate) : null }
+            : {}),
+          ...(data.workHours !== undefined
+            ? { workHours: Number(data.workHours) > 0 ? Number(data.workHours) : null }
             : {}),
           ...(data.notes !== undefined ? { notes: data.notes?.trim() || null } : {}),
           ...(data.isActive != null ? { isActive: !!data.isActive } : {}),
@@ -331,7 +339,7 @@ export class HrService {
   }
 
   // ─── attendance ───────────────────────────────────────────
-  listAttendance(query?: { from?: string; to?: string; employeeId?: string }) {
+  async listAttendance(query?: { from?: string; to?: string; employeeId?: string }) {
     const where: Prisma.HrAttendanceWhereInput = {};
     if (query?.employeeId) where.employeeId = query.employeeId;
     if (query?.from || query?.to) {
@@ -339,11 +347,19 @@ export class HrService {
       if (query.from) where.workDate.gte = dateOnly(query.from);
       if (query.to) where.workDate.lte = dateOnly(query.to);
     }
-    return this.prisma.hrAttendance.findMany({
-      where,
-      include: { employee: { select: { id: true, code: true, name: true } } },
-      orderBy: [{ workDate: 'desc' }, { employee: { code: 'asc' } }],
-    });
+    const [rows, settings] = await Promise.all([
+      this.prisma.hrAttendance.findMany({
+        where,
+        include: { employee: { select: { id: true, code: true, name: true, salary: true, workHours: true } } },
+        orderBy: [{ workDate: 'desc' }, { employee: { code: 'asc' } }],
+      }),
+      this.getSettings(),
+    ]);
+    return rows.map(({ employee, ...row }) => ({
+      ...row,
+      employee: { id: employee.id, code: employee.code, name: employee.name },
+      overtime: this.overtimeInfo(employee, settings, row.overtimeMinutes),
+    }));
   }
 
   async upsertAttendance(data: {
@@ -355,11 +371,15 @@ export class HrService {
     lateMinutes?: number;
     permissionMinutes?: number;
     overtimeMinutes?: number;
+    overtimeApproved?: boolean;
     notes?: string;
   }) {
-    await this.getEmployee(data.employeeId);
+    const employee = await this.getEmployee(data.employeeId);
     const workDate = dateOnly(data.workDate);
     const settings = await this.getSettings();
+    const existing = await this.prisma.hrAttendance.findUnique({
+      where: { employeeId_workDate: { employeeId: data.employeeId, workDate } },
+    });
     let lateMinutes = Math.max(0, Number(data.lateMinutes) || 0);
     let permissionMinutes = Math.max(0, Number(data.permissionMinutes) || 0);
     let overtimeMinutes = Math.max(0, Number(data.overtimeMinutes) || 0);
@@ -371,9 +391,13 @@ export class HrService {
     // لو الحضور/الانصراف موجودين ومتبعتش إضافي يدوي → احسب ساعات العمل والإضافي
     if (punchIn && punchOut && (data.overtimeMinutes == null || data.overtimeMinutes === undefined)) {
       const workedMins = Math.max(0, Math.round((punchOut.getTime() - punchIn.getTime()) / 60000));
-      const expectedMins = Math.max(1, settings.hoursPerDay) * 60;
+      const expectedMins = Math.max(1, employeeHours(employee, settings)) * 60;
       overtimeMinutes = Math.max(0, workedMins - expectedMins);
     }
+    // الإضافي يحتاج تأكيد — يفضل مؤكد فقط لو نفس الدقائق اللي اتأكدت قبل كده
+    const overtimeApproved = overtimeMinutes > 0 && (
+      data.overtimeApproved ?? (!!existing?.overtimeApproved && existing.overtimeMinutes === overtimeMinutes)
+    );
 
     let status = data.status || HrAttendanceStatus.PRESENT;
     if (punchIn && (data.lateMinutes == null || data.lateMinutes === undefined)) {
@@ -383,7 +407,7 @@ export class HrService {
       status = HrAttendanceStatus.LATE;
     }
 
-    return this.prisma.hrAttendance.upsert({
+    const row = await this.prisma.hrAttendance.upsert({
       where: { employeeId_workDate: { employeeId: data.employeeId, workDate } },
       create: {
         employeeId: data.employeeId,
@@ -394,6 +418,7 @@ export class HrService {
         lateMinutes,
         permissionMinutes,
         overtimeMinutes,
+        overtimeApproved,
         notes: data.notes?.trim() || null,
       },
       update: {
@@ -403,10 +428,42 @@ export class HrService {
         lateMinutes,
         permissionMinutes,
         overtimeMinutes,
+        overtimeApproved,
         notes: data.notes?.trim() || null,
       },
       include: { employee: { select: { id: true, code: true, name: true } } },
     });
+    return { ...row, overtime: this.overtimeInfo(employee, settings, overtimeMinutes) };
+  }
+
+  private overtimeInfo(
+    employee: { salary: number; workHours?: number | null },
+    settings: HrSettings,
+    minutes: number,
+  ) {
+    const { hourlyRate, overtimeRate } = overtimeRates(employee, settings);
+    const hours = roundMoney(minutes / 60);
+    return {
+      hours,
+      workHours: employeeHours(employee, settings),
+      hourlyRate,
+      multiplier: settings.overtimeMultiplier,
+      rate: overtimeRate,
+      amount: roundMoney(hours * overtimeRate),
+    };
+  }
+
+  async approveOvertime(id: string, approved: boolean) {
+    const row = await this.prisma.hrAttendance.findUnique({ where: { id }, include: { employee: true } });
+    if (!row) throw new NotFoundException('سجل الحضور غير موجود');
+    if (approved && row.overtimeMinutes <= 0) throw new BadRequestException('لا يوجد إضافي في هذا اليوم');
+    const updated = await this.prisma.hrAttendance.update({
+      where: { id },
+      data: { overtimeApproved: approved },
+      include: { employee: { select: { id: true, code: true, name: true } } },
+    });
+    const settings = await this.getSettings();
+    return { ...updated, overtime: this.overtimeInfo(row.employee, settings, row.overtimeMinutes) };
   }
 
   async deleteAttendance(id: string) {
@@ -630,7 +687,7 @@ export class HrService {
   }
 
   private async calcEmployeeLine(
-    emp: { id: string; code: string; name: string; salary: number; commissionPercent: number; userId: string | null },
+    emp: { id: string; code: string; name: string; salary: number; commissionPercent: number; userId: string | null; workHours: number | null },
     fromDate: Date,
     toDate: Date,
     fromYmd: string,
@@ -639,7 +696,7 @@ export class HrService {
     settings: HrSettings,
   ) {
     const daily = roundMoney((emp.salary || 0) / settings.daysPerMonth);
-    const hourlyRate = roundMoney(daily / Math.max(1, settings.hoursPerDay));
+    const hourlyRate = overtimeRates(emp, settings).hourlyRate;
     const periodPay = roundMoney(daily * workdays.length);
 
     const [attendance, leaves, movements] = await Promise.all([
@@ -719,7 +776,7 @@ export class HrService {
       presentDays += 1;
       const lateBillable = Math.max(0, (att.lateMinutes || 0) - settings.lateGraceMinutes);
       totalLateMinutes += lateBillable;
-      totalOvertimeMinutes += Math.max(0, att.overtimeMinutes || 0);
+      if (att.overtimeApproved) totalOvertimeMinutes += Math.max(0, att.overtimeMinutes || 0);
       if (att.permissionMinutes > 0 && settings.permissionDeductPerHour > 0) {
         autoPermissionDeduct += (att.permissionMinutes / 60) * settings.permissionDeductPerHour;
       }
@@ -804,7 +861,7 @@ export class HrService {
         overtimeMultiplier: settings.overtimeMultiplier,
         absenceMultiplier: settings.absenceMultiplier,
         unpaidLeaveDeduct: settings.unpaidLeaveDeduct,
-        hoursPerDay: settings.hoursPerDay,
+        hoursPerDay: employeeHours(emp, settings),
       },
     };
   }

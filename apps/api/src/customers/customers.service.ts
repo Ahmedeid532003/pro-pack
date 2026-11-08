@@ -341,6 +341,8 @@ export class CustomersService implements OnModuleInit {
     title?: string;
     terms?: string;
     notes?: string;
+    width?: number | null;
+    thickness?: number | null;
   }) {
     await this.findOne(data.customerId);
     const number = await this.sequence.next('customer_contract', 'CTR');
@@ -352,6 +354,8 @@ export class CustomersService implements OnModuleInit {
         title: data.title?.trim() || 'عقد توريد وتعامل',
         terms: data.terms?.trim() || DEFAULT_CONTRACT_TERMS,
         notes: data.notes?.trim() || null,
+        width: data.width ?? null,
+        thickness: data.thickness ?? null,
       },
       include: {
         customer: {

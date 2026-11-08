@@ -9,6 +9,7 @@ import { DualPrintCopies } from '../components/DualPrintCopies';
 import { AddLineButton, EditorErrors, EditorSection, InvoiceEditor, LineCard, PriceHint, SummaryRow } from '../components/InvoiceEditor';
 import { ProductPicker } from '../components/ProductPicker';
 import { productsForWarehouse } from '../lib/productWarehouse';
+import { optionalNumber, sizeText } from '../lib/size';
 import { TenderEditor, type PayMethodOption, type TenderPart } from '../components/TenderEditor';
 import { useConfirm, usePrompt, useToast } from '../lib/feedback';
 import { useColumns } from '../lib/columns';
@@ -31,7 +32,7 @@ type Product = {
 type StockRow = { productId: string; quantity: number; product: Product };
 const WALK_IN_NAME = 'عميل سريع';
 type Account = { id: string; name: string };
-type Line = { id?: string; productId: string; quantity: number | ''; unitPrice: number | ''; discount: number | ''; netWeight: number | '' };
+type Line = { id?: string; productId: string; quantity: number | ''; unitPrice: number | ''; discount: number | ''; netWeight: number | ''; width: number | ''; thickness: number | '' };
 
 type Invoice = {
   id: string;
@@ -47,11 +48,11 @@ type Invoice = {
   taxRate?: number;
   customer: { id: string; name: string };
   warehouse: { id: string; name: string };
-  lines: { id: string; productId: string; quantity: number; unitPrice: number; discount?: number; total: number; netWeight?: number | null; product: { name: string; sku: string } }[];
+  lines: { id: string; productId: string; quantity: number; unitPrice: number; discount?: number; total: number; netWeight?: number | null; width?: number | null; thickness?: number | null; product: { name: string; sku: string } }[];
   receipts?: { id: string; number: string; amount: number; paymentMethod: string; receivedAt: string; note?: string | null }[];
 };
 
-const emptyLine = (): Line => ({ productId: '', quantity: '', unitPrice: '', discount: '', netWeight: '' });
+const emptyLine = (): Line => ({ productId: '', quantity: '', unitPrice: '', discount: '', netWeight: '', width: '', thickness: '' });
 const num = (v: number | '') => (v === '' ? 0 : v);
 /** الوزن أساس السعر — العدد للعرض فقط لو فيه وزن */
 function billQty(line: { quantity: number | ''; netWeight?: number | '' }) {
@@ -404,7 +405,7 @@ export function SalesPage() {
       if (idx >= 0) {
         return prev.map((l, i) => i === idx ? { ...l, quantity: num(l.quantity) + 1 } : l);
       }
-      return [...prev, { productId: p.id, quantity: 1, unitPrice: priceFor(p, posForm.customerName), discount: '', netWeight: '' }];
+      return [...prev, { productId: p.id, quantity: 1, unitPrice: priceFor(p, posForm.customerName), discount: '', netWeight: '', width: '', thickness: '' }];
     });
   }
 
@@ -443,6 +444,8 @@ export function SalesPage() {
         unitPrice: num(l.unitPrice),
         discount: num(l.discount),
         netWeight: l.netWeight === '' ? undefined : num(l.netWeight),
+        width: optionalNumber(l.width),
+        thickness: optionalNumber(l.thickness),
       })),
     };
       if (!editingId && !requestKey.current) requestKey.current = crypto.randomUUID();
@@ -519,6 +522,8 @@ export function SalesPage() {
       unitPrice: l.unitPrice,
       discount: l.discount || '',
       netWeight: l.netWeight ?? '',
+      width: l.width ?? '',
+      thickness: l.thickness ?? '',
     })));
     setView(null);
     setOpen(true);
@@ -977,7 +982,15 @@ export function SalesPage() {
                     <Label>خصم البند</Label>
                     <NumberInput value={l.discount} onValueChange={(v) => updateLine(i, { discount: v })} />
                   </div>
-                  <div className="sm:col-span-4 text-xs text-muted self-end pb-2">
+                  <div className="sm:col-span-2">
+                    <Label>العرض (سم)</Label>
+                    <NumberInput value={l.width} onValueChange={(v) => updateLine(i, { width: v })} placeholder="اختياري" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>السمك (سم)</Label>
+                    <NumberInput value={l.thickness} onValueChange={(v) => updateLine(i, { thickness: v })} placeholder="اختياري" />
+                  </div>
+                  <div className="sm:col-span-12 text-xs text-muted">
                     الإجمالي = الوزن × السعر (والكمية بالكيلو)
                   </div>
                 </div>
@@ -1129,7 +1142,7 @@ export function SalesPage() {
                     ['المتبقي', view.status === 'CANCELLED' ? 0 : view.total - view.paidAmount],
                   ],
                   lines: view.lines.map((l) => ({
-                    name: l.product.name,
+                    name: sizeText(l.width, l.thickness) ? `${l.product.name} (${sizeText(l.width, l.thickness)})` : l.product.name,
                     quantity: l.quantity,
                     unitPrice: l.unitPrice,
                     total: l.total,
@@ -1160,7 +1173,10 @@ export function SalesPage() {
                 <tbody>
                   {view.lines.map((l, i) => (
                     <tr key={i}>
-                      <Td>{l.product.name}</Td>
+                      <Td>
+                        {l.product.name}
+                        {sizeText(l.width, l.thickness) && <div className="text-[11px] text-slate-600">{sizeText(l.width, l.thickness)}</div>}
+                      </Td>
                       <Td>{l.quantity}</Td>
                       <Td>{formatMoney(l.unitPrice)}</Td>
                       <Td>{formatMoney(l.total)}</Td>

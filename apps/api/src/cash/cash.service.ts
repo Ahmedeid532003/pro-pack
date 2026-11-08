@@ -72,6 +72,8 @@ export class CashService {
     paymentMethod?: string;
     reference?: string;
     voucherKind?: 'RECEIPT' | 'PAYOUT' | 'MANUAL';
+    receivedBy?: string;
+    deliveredBy?: string;
     createdById?: string;
   }) {
     if (data.amount <= 0) throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
@@ -106,9 +108,11 @@ export class CashService {
           reference: data.reference || voucherNumber,
           voucherKind,
           voucherNumber,
+          receivedBy: data.receivedBy?.trim() || null,
+          deliveredBy: data.deliveredBy?.trim() || null,
           createdById: data.createdById,
         },
-        include: { account: true },
+        include: { account: true, createdBy: { select: { fullName: true } } },
       });
     });
   }

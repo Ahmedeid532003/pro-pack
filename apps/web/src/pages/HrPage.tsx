@@ -48,6 +48,7 @@ type Employee = {
   commissionPercent: number;
   phone?: string | null;
   hireDate?: string | null;
+  workHours?: number | null;
   isActive: boolean;
   userId?: string | null;
   user?: { id: string; fullName: string; username: string } | null;
@@ -65,10 +66,13 @@ type Attendance = {
   lateMinutes: number;
   permissionMinutes: number;
   overtimeMinutes?: number;
+  overtimeApproved?: boolean;
+  overtime?: OvertimeInfo;
   punchIn?: string | null;
   punchOut?: string | null;
   employee: { id: string; code: string; name: string };
 };
+type OvertimeInfo = { hours: number; workHours: number; hourlyRate: number; multiplier: number; rate: number; amount?: number };
 type PayrollLine = {
   id?: string;
   employeeId: string;
@@ -151,7 +155,7 @@ const ATT_LABELS: Record<string, string> = {
   LEAVE: 'إجازة',
 };
 
-const emptyEmp = { code: '', name: '', userId: '', salary: 0 as number | '', commissionPercent: 0 as number | '', phone: '', hireDate: '', isActive: true };
+const emptyEmp = { code: '', name: '', userId: '', salary: 0 as number | '', commissionPercent: 0 as number | '', phone: '', hireDate: '', workHours: '' as number | '', isActive: true };
 
 function monthStart() {
   const d = new Date();
@@ -207,7 +211,7 @@ export function HrPage() {
     workDate: todayIso(),
     status: 'PRESENT',
     punchIn: '09:00',
-    punchOut: '17:00',
+    punchOut: '19:00',
     lateMinutes: '' as number | '',
     permissionMinutes: 0 as number | '',
     overtimeMinutes: '' as number | '',
@@ -233,6 +237,7 @@ export function HrPage() {
   }
 
   const attWorkHours = workHoursFromTimes(attForm.punchIn, attForm.punchOut);
+  const attExpectedHours = employees.find((e) => e.id === attForm.employeeId)?.workHours || settings?.hoursPerDay || 10;
 
   async function loadCore() {
     setLoadError('');
@@ -332,9 +337,44 @@ export function HrPage() {
       commissionPercent: row.commissionPercent,
       phone: row.phone || '',
       hireDate: row.hireDate ? String(row.hireDate).slice(0, 10) : '',
+      workHours: row.workHours ?? '',
       isActive: row.isActive,
     });
     setEmpOpen(true);
+  }
+
+  async function confirmOvertime(row: Attendance) {
+    const info = row.overtime;
+    if (!row.overtimeMinutes || row.overtimeMinutes <= 0 || row.overtimeApproved) return;
+    const priceText = info && showSalary
+      ? `هيتحسب له إضافي بسعر ${formatMoney(info.rate)} للساعة (الساعة × ${info.multiplier} من المرتب)${info.amount != null ? ` — إجمالي ${formatMoney(info.amount)}` : ''}.`
+      : 'هيتحسب له إضافي بسعر الساعة من المرتب × مضاعف الإضافي.';
+    const ok = await confirm({
+      title: 'تأكيد الإضافي',
+      message: `${row.employee.name} اشتغل ${info?.hours ?? Math.round((row.overtimeMinutes / 60) * 100) / 100} ساعة بعد ${info?.workHours ?? settings?.hoursPerDay ?? 10} ساعات العمل. ${priceText} تأكيد احتساب الإضافي؟`,
+      confirmLabel: 'تأكيد الإضافي',
+      cancelLabel: 'بدون إضافي',
+    });
+    if (!ok) return;
+    await run(
+      () => api(`/hr/attendance/${row.id}/overtime`, { method: 'POST', body: JSON.stringify({ approved: true }) }),
+      'تم تأكيد الإضافي وسيدخل في المرتب',
+    );
+  }
+
+  async function saveAttendance(request: () => Promise<Attendance>, success: string) {
+    setBusy(true);
+    try {
+      const row = await request();
+      toast.success(success);
+      await loadTab();
+      setBusy(false);
+      await confirmOvertime(row);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر حفظ الحضور');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveEmployee() {
@@ -346,6 +386,7 @@ export function HrPage() {
       commissionPercent: Number(empForm.commissionPercent) || 0,
       phone: empForm.phone || undefined,
       hireDate: empForm.hireDate || undefined,
+      workHours: empForm.workHours === '' ? null : Number(empForm.workHours) || null,
       isActive: empForm.isActive,
     };
     const ok = await run(
@@ -524,6 +565,7 @@ export function HrPage() {
                   <Th>المستخدم</Th>
                   {showSalary && <Th>الراتب</Th>}
                   <Th>عمولة %</Th>
+                  <Th>ساعات العمل</Th>
                   <Th>الحالة</Th>
                   <Th className="no-print"></Th>
                 </tr>
@@ -536,6 +578,7 @@ export function HrPage() {
                     <Td>{row.user?.fullName || '—'}</Td>
                     {showSalary && <Td>{formatMoney(row.salary)}</Td>}
                     <Td>{row.commissionPercent}%</Td>
+                    <Td>{row.workHours || settings?.hoursPerDay || 10} س{row.workHours ? '' : ' (افتراضي)'}</Td>
                     <Td><Badge tone={row.isActive ? 'emerald' : 'slate'}>{row.isActive ? 'نشط' : 'موقوف'}</Badge></Td>
                     <Td className="no-print">
                       <div className="flex gap-1">
@@ -585,8 +628,9 @@ export function HrPage() {
                 </div>
                 <div className="rounded-xl bg-brand-50 px-3 py-2 text-sm font-bold text-brand-900">
                   ساعات العمل: {attWorkHours != null ? `${attWorkHours} ساعة` : '—'}
-                  {settings && attWorkHours != null && attWorkHours > settings.hoursPerDay
-                    ? ` · إضافي تقريبي ${Math.round((attWorkHours - settings.hoursPerDay) * 60)} د`
+                  <span className="font-semibold text-brand-700"> · المطلوب {attExpectedHours} ساعات</span>
+                  {attWorkHours != null && attWorkHours > attExpectedHours
+                    ? ` · إضافي ${Math.round((attWorkHours - attExpectedHours) * 60)} د (يحتاج تأكيد)`
                     : ''}
                 </div>
                 <Field label="دقائق تأخير (اختياري — يتحسب من الحضور لو فاضي)">
@@ -597,8 +641,8 @@ export function HrPage() {
                   <NumberInput value={attForm.overtimeMinutes} onValueChange={(v) => setAttForm({ ...attForm, overtimeMinutes: v })} />
                 </Field>
                 <Field label="ملاحظات"><Input value={attForm.notes} onChange={(e) => setAttForm({ ...attForm, notes: e.target.value })} /></Field>
-                <Button disabled={busy || !attForm.employeeId} className="w-full" onClick={() => run(
-                  () => api('/hr/attendance', { method: 'POST', body: JSON.stringify({
+                <Button disabled={busy || !attForm.employeeId} className="w-full" onClick={() => saveAttendance(
+                  () => api<Attendance>('/hr/attendance', { method: 'POST', body: JSON.stringify({
                     employeeId: attForm.employeeId,
                     workDate: attForm.workDate,
                     status: attForm.status,
@@ -612,12 +656,12 @@ export function HrPage() {
                   'تم حفظ الحضور',
                 )}>حفظ الحضور</Button>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant="secondary" disabled={busy || !attForm.employeeId} onClick={() => run(
-                    () => api('/hr/attendance/punch-in', { method: 'POST', body: JSON.stringify({ employeeId: attForm.employeeId }) }),
+                  <Button variant="secondary" disabled={busy || !attForm.employeeId} onClick={() => saveAttendance(
+                    () => api<Attendance>('/hr/attendance/punch-in', { method: 'POST', body: JSON.stringify({ employeeId: attForm.employeeId }) }),
                     'تم تسجيل الحضور الآن',
                   )}>حضور الآن</Button>
-                  <Button variant="secondary" disabled={busy || !attForm.employeeId} onClick={() => run(
-                    () => api('/hr/attendance/punch-out', { method: 'POST', body: JSON.stringify({ employeeId: attForm.employeeId }) }),
+                  <Button variant="secondary" disabled={busy || !attForm.employeeId} onClick={() => saveAttendance(
+                    () => api<Attendance>('/hr/attendance/punch-out', { method: 'POST', body: JSON.stringify({ employeeId: attForm.employeeId }) }),
                     'تم تسجيل الانصراف الآن',
                   )}>انصراف الآن</Button>
                 </div>
@@ -660,7 +704,44 @@ export function HrPage() {
                         <Td>{hours}</Td>
                         <Td>{row.lateMinutes} د</Td>
                         <Td>{row.permissionMinutes} د</Td>
-                        <Td>{row.overtimeMinutes || 0} د</Td>
+                        <Td>
+                          <div className="whitespace-nowrap">{row.overtimeMinutes || 0} د</div>
+                          {(row.overtimeMinutes || 0) > 0 && (
+                            row.overtimeApproved ? (
+                              <div className="mt-1 flex items-center gap-1">
+                                <Badge tone="emerald">مؤكد</Badge>
+                                {can('hr', 'edit') && (
+                                  <button
+                                    type="button"
+                                    className="text-[11px] font-bold text-slate-400 hover:text-rose-600 no-print"
+                                    onClick={() => run(
+                                      () => api(`/hr/attendance/${row.id}/overtime`, { method: 'POST', body: JSON.stringify({ approved: false }) }),
+                                      'تم إلغاء احتساب الإضافي',
+                                    )}
+                                  >
+                                    إلغاء
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="mt-1 flex items-center gap-1">
+                                <Badge tone="amber">غير مؤكد</Badge>
+                                {can('hr', 'edit') && (
+                                  <button
+                                    type="button"
+                                    className="text-[11px] font-bold text-brand-700 hover:underline no-print"
+                                    onClick={() => confirmOvertime(row)}
+                                  >
+                                    تأكيد
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          )}
+                          {(row.overtimeMinutes || 0) > 0 && row.overtime && showSalary && (
+                            <div className="mt-0.5 text-[11px] text-muted">{formatMoney(row.overtime.rate)} / ساعة</div>
+                          )}
+                        </Td>
                         <Td className="no-print">
                           {can('hr', 'delete') && (
                             <Button size="sm" variant="danger" onClick={() => run(() => api(`/hr/attendance/${row.id}`, { method: 'DELETE' }), 'تم الحذف')}><Trash2 size={14} /></Button>
@@ -975,10 +1056,10 @@ export function HrPage() {
             <h3 className="mb-3 font-extrabold">إعدادات الحضور والراتب بالساعة</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="أيام الشهر"><NumberInput value={settingsForm.daysPerMonth} onValueChange={(v) => setSettingsForm({ ...settingsForm, daysPerMonth: Number(v) || 30 })} /></Field>
-              <Field label="ساعات العمل / يوم"><NumberInput value={settingsForm.hoursPerDay ?? 8} onValueChange={(v) => setSettingsForm({ ...settingsForm, hoursPerDay: Number(v) || 8 })} /></Field>
+              <Field label="ساعات العمل / يوم (الافتراضي لكل الموظفين)"><NumberInput value={settingsForm.hoursPerDay ?? 10} onValueChange={(v) => setSettingsForm({ ...settingsForm, hoursPerDay: Number(v) || 10 })} /></Field>
               <Field label="مضاعف الإضافي (ساعة بساعتين = 2)"><NumberInput value={settingsForm.overtimeMultiplier ?? 2} onValueChange={(v) => setSettingsForm({ ...settingsForm, overtimeMultiplier: Number(v) || 2 })} /></Field>
               <Field label="مضاعف الغياب">
-                <Select value={String(settingsForm.absenceMultiplier ?? 1)} onChange={(e) => setSettingsForm({ ...settingsForm, absenceMultiplier: Number(e.target.value) })}>
+                <Select value={String(settingsForm.absenceMultiplier ?? 2)} onChange={(e) => setSettingsForm({ ...settingsForm, absenceMultiplier: Number(e.target.value) })}>
                   <option value="1">يوم بيوم</option>
                   <option value="2">يوم بيومين</option>
                 </Select>
@@ -1041,7 +1122,9 @@ export function HrPage() {
             {settings && (
               <p className="mt-4 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
                 الصيغة: الصافي = (مستحق الراتب + مكافآت − خصومات − سلف − تأخير − إذن) + عمولة المبيعات المستحقة.
-                مستحق الراتب = اليومية × (حضور + إجازة مدفوعة + إذن). يوم عمل بلا حضور = غياب. الإذن ليس غياباً.
+                مستحق الراتب = اليومية × (حضور + إجازة مدفوعة + إذن). يوم عمل بلا حضور = غياب
+                {settings.absenceMultiplier === 2 ? ' ويُخصم بيومين' : ''}. الإذن ليس غياباً.
+                الإضافي = ما بعد ساعات العمل ({settings.hoursPerDay} ساعات أو ساعات الموظف) ولا يدخل المرتب إلا بعد التأكيد.
               </p>
             )}
           </Card>
@@ -1061,6 +1144,9 @@ export function HrPage() {
             </Select>
           </Field>
           <Field label="الهاتف"><Input value={empForm.phone} onChange={(e) => setEmpForm({ ...empForm, phone: e.target.value })} /></Field>
+          <Field label={`ساعات العمل اليومية (فاضي = ${settings?.hoursPerDay ?? 10} ساعات)`}>
+            <NumberInput value={empForm.workHours} onValueChange={(v) => setEmpForm({ ...empForm, workHours: v })} placeholder={String(settings?.hoursPerDay ?? 10)} />
+          </Field>
           {showSalary && (
             <Field label="الراتب الشهري"><NumberInput value={empForm.salary} onValueChange={(v) => setEmpForm({ ...empForm, salary: v })} /></Field>
           )}

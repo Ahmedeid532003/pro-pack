@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDownLeft, ArrowUpRight, Boxes, Coins, Download, FileSpreadsheet, Package, PackageX, Percent, Printer, ShoppingCart,
+  AlertTriangle, ArrowDownLeft, ArrowUpRight, Boxes, ClipboardCheck, Coins, Download, FileSpreadsheet, Package, PackageX, Percent, Printer, ShoppingCart,
   TrendingDown, TrendingUp, Truck, Wallet,
 } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { api, formatDate, formatMoney, getApiBase } from '../lib/api';
+import { sizeText } from '../lib/size';
 import { DueAmount } from '../components/DueAmount';
 import {
   Badge, Button, Card, CardHeader, Empty, Input, Label, PageHeader, PrintHeader, SearchBox, StatCard, StatGrid, StatusBadge, Table, Td, Th,
@@ -260,11 +261,25 @@ type ProductInsights = {
   unsoldValue: number;
 };
 
-type ReportTab = 'inventory' | 'sales' | 'purchases' | 'profit' | 'cash' | 'products';
+type ReportTab = 'inventory' | 'count' | 'sales' | 'purchases' | 'profit' | 'cash' | 'products';
 type AppliedFilter = { all: boolean; ids: string[]; from: string; to: string };
+
+type CountSheet = {
+  rows: {
+    warehouse: { id: string; code: string; name: string };
+    product: { id: string; sku: string; name: string; unit: string; width?: number | null; thickness?: number | null; weight?: number | null };
+    quantity: number;
+    lastCountAt: string | null;
+  }[];
+  lastCountAt: string | null;
+  totalQty: number;
+};
+
+const NO_DATES: ReportTab[] = ['inventory', 'count'];
 
 const TAB_LABEL: Record<ReportTab, string> = {
   inventory: 'المخزون',
+  count: 'بيان جرد',
   sales: 'المبيعات',
   purchases: 'المشتريات',
   profit: 'الأرباح',
@@ -277,6 +292,7 @@ export function ReportsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
+  const [countSheet, setCountSheet] = useState<CountSheet | null>(null);
   const [sales, setSales] = useState<SalesReport | null>(null);
   const [purchases, setPurchases] = useState<PurchasesReport | null>(null);
   const [profit, setProfit] = useState<Profit | null>(null);
@@ -299,6 +315,16 @@ export function ReportsPage() {
     );
   }, [inventory, search]);
 
+  const filteredCount = useMemo(() => {
+    const rows = countSheet?.rows || [];
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      [r.product.sku, r.product.name, r.warehouse.name, sizeText(r.product.width, r.product.thickness)]
+        .some((x) => x.toLowerCase().includes(q)),
+    );
+  }, [countSheet, search]);
+
   const productQuery = search.trim().toLowerCase();
   const matchProduct = (row: { sku: string; name: string }) =>
     !productQuery || [row.sku, row.name].some((value) => value.toLowerCase().includes(productQuery));
@@ -319,9 +345,11 @@ export function ReportsPage() {
 
   async function load(next = applied, nextTab = tab) {
     if (!next) return;
-    const suffix = queryFor(next, nextTab !== 'inventory');
+    const suffix = queryFor(next, !NO_DATES.includes(nextTab));
     if (nextTab === 'inventory') {
       setInventory(await api<InventoryRow[]>(`/reports/inventory${suffix}`));
+    } else if (nextTab === 'count') {
+      setCountSheet(await api<CountSheet>(`/reports/count-sheet${suffix}`));
     } else if (nextTab === 'sales') {
       setSales(await api<SalesReport>(`/reports/sales${suffix}`));
     } else if (nextTab === 'purchases') {
@@ -345,6 +373,14 @@ export function ReportsPage() {
       } catch { /* التاريخ المحفوظ مش شرط يفضل صالح */ }
     }
     api<{ id: string; name: string }[]>('/warehouses').then(setWarehouses).catch(() => setWarehouses([]));
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab') === 'count') {
+      const ids = (params.get('warehouses') || '').split(',').filter(Boolean);
+      setTab('count');
+      setAllWarehouses(!ids.length);
+      setPicked(ids);
+      setApplied({ all: !ids.length, ids, from: '', to: '' });
+    }
   }, []);
 
   useEffect(() => { if (applied) load(applied, tab).catch(() => undefined); }, [tab, applied]);
@@ -387,8 +423,38 @@ export function ReportsPage() {
 
     const ExcelJS = await loadExcel();
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('تقرير');
-    if (tab === 'sales' && sales) {
+    const ws = wb.addWorksheet(tab === 'count' ? 'بيان جرد' : 'تقرير');
+    if (tab === 'count' && countSheet) {
+      ws.views = [{ rightToLeft: true }];
+      ws.columns = [
+        { header: 'م', key: 'index', width: 6 },
+        { header: 'المخزن', key: 'warehouse', width: 18 },
+        { header: 'الكود', key: 'sku', width: 14 },
+        { header: 'الصنف', key: 'name', width: 30 },
+        { header: 'العرض (سم)', key: 'width', width: 11 },
+        { header: 'السمك (سم)', key: 'thickness', width: 11 },
+        { header: 'الوحدة', key: 'unit', width: 10 },
+        { header: 'الكمية بالسيستم', key: 'qty', width: 14 },
+        { header: 'آخر جرد', key: 'lastCount', width: 14 },
+        { header: 'الكمية الفعلية', key: 'actual', width: 14 },
+        { header: 'الفرق', key: 'diff', width: 10 },
+      ];
+      filteredCount.forEach((r, index) => {
+        ws.addRow({
+          index: index + 1,
+          warehouse: r.warehouse.name,
+          sku: r.product.sku,
+          name: r.product.name,
+          width: r.product.width ?? '',
+          thickness: r.product.thickness ?? '',
+          unit: r.product.unit,
+          qty: r.quantity,
+          lastCount: r.lastCountAt ? formatDate(r.lastCountAt) : '',
+          actual: '',
+          diff: '',
+        });
+      });
+    } else if (tab === 'sales' && sales) {
       ws.columns = [
         { header: 'الرقم', key: 'number', width: 14 },
         { header: 'العميل', key: 'customer', width: 24 },
@@ -550,11 +616,12 @@ export function ReportsPage() {
         }
       />
 
-      <PrintHeader title="تقرير Pro Pack" subtitle={`${TAB_LABEL[tab]}${applied ? ` · ${applied.all ? 'كل المخازن' : warehouses.filter((row) => applied.ids.includes(row.id)).map((row) => row.name).join('، ')}` : ''}`} />
+      <PrintHeader title={tab === 'count' ? 'بيان جرد مخزن' : 'تقرير Pro Pack'} subtitle={`${TAB_LABEL[tab]}${applied ? ` · ${applied.all ? 'كل المخازن' : warehouses.filter((row) => applied.ids.includes(row.id)).map((row) => row.name).join('، ')}` : ''}`} />
 
       <div className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm no-print">
         {([
           ['inventory', 'المخزون', Boxes],
+          ['count', 'بيان جرد', ClipboardCheck],
           ['sales', 'المبيعات', ShoppingCart],
           ['purchases', 'المشتريات', Truck],
           ['products', 'المنتجات', Package],
@@ -612,7 +679,7 @@ export function ReportsPage() {
               })}
             </div>
           </div>
-          {tab !== 'inventory' && (
+          {!NO_DATES.includes(tab) && (
             <div className="flex flex-wrap items-end gap-3">
               <div className="flex rounded-xl bg-slate-100 p-1">
                 {([['today', 'اليوم'], ['week', 'الأسبوع'], ['month', 'الشهر'], ['year', 'السنة']] as const).map(([key, label]) => (
@@ -671,6 +738,63 @@ export function ReportsPage() {
               </tbody>
             </Table>
           )}
+        </Card>
+      )}
+
+      {applied && tab === 'count' && countSheet && (
+        <Card>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div className="font-bold text-slate-700">
+              {filteredCount.length} صنف · إجمالي الكميات {filteredCount.reduce((s, r) => s + r.quantity, 0).toLocaleString('ar-EG')}
+            </div>
+            <div className="text-slate-600">
+              آخر جرد: <b>{countSheet.lastCountAt ? formatDate(countSheet.lastCountAt) : 'لم يتم جرد بعد'}</b>
+              <span className="mx-2 text-slate-300">|</span>
+              تاريخ البيان: <b>{formatDate(new Date().toISOString())}</b>
+            </div>
+          </div>
+          {filteredCount.length === 0 ? <Empty text="لا توجد أرصدة في المخزن المحدد" /> : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>م</Th>
+                  <Th>المخزن</Th>
+                  <Th>الكود</Th>
+                  <Th>الصنف</Th>
+                  <Th>المقاس</Th>
+                  <Th>الوحدة</Th>
+                  <Th>الكمية بالسيستم</Th>
+                  <Th>آخر جرد</Th>
+                  <Th>الكمية الفعلية</Th>
+                  <Th>الفرق</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCount.map((r, i) => (
+                  <tr key={`${r.warehouse.id}-${r.product.id}`}>
+                    <Td className="tabular-nums text-slate-500">{i + 1}</Td>
+                    <Td className="text-slate-600">{r.warehouse.name}</Td>
+                    <Td><span className="font-mono text-[11px] text-slate-600" dir="ltr">{r.product.sku}</span></Td>
+                    <Td className="font-bold text-slate-900">{r.product.name}</Td>
+                    <Td className="whitespace-nowrap">{sizeText(r.product.width, r.product.thickness) || '—'}</Td>
+                    <Td>{r.product.unit}</Td>
+                    <Td className={`font-extrabold tabular-nums ${r.quantity < 0 ? 'text-rose-600' : ''}`}>{r.quantity.toLocaleString('ar-EG')}</Td>
+                    <Td className="whitespace-nowrap text-slate-600">{r.lastCountAt ? formatDate(r.lastCountAt) : '—'}</Td>
+                    <Td className="min-w-[6rem] border-b border-dashed border-slate-300"></Td>
+                    <Td className="min-w-[4rem] border-b border-dashed border-slate-300"></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+          <div className="mt-10 grid grid-cols-3 gap-6 text-center text-sm font-bold text-slate-700">
+            {['أمين المخزن', 'المراجع', 'المدير'].map((role) => (
+              <div key={role}>
+                <div className="mb-10">{role}</div>
+                <div className="border-t border-slate-400 pt-1 text-xs font-semibold text-slate-500">الاسم / التوقيع</div>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 

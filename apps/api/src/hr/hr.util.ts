@@ -22,7 +22,7 @@ export type HrSettings = {
 
 export const DEFAULT_HR_SETTINGS: HrSettings = {
   daysPerMonth: 30,
-  hoursPerDay: 8,
+  hoursPerDay: 10,
   weekendDays: [5, 6],
   lateGraceMinutes: 15,
   latePenaltyPerMinute: 0,
@@ -30,7 +30,7 @@ export const DEFAULT_HR_SETTINGS: HrSettings = {
   workStartHour: 9,
   workStartMinute: 0,
   overtimeMultiplier: 2,
-  absenceMultiplier: 1,
+  absenceMultiplier: 2,
   unpaidLeaveDeduct: true,
   lateByHourlyRate: true,
 };
@@ -42,11 +42,25 @@ export function roundMoney(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/** Daily hours for one employee: their own value, else the HR default. */
+export function employeeHours(emp: { workHours?: number | null }, settings: HrSettings) {
+  return emp.workHours && emp.workHours > 0 ? emp.workHours : settings.hoursPerDay;
+}
+
+/** Hourly pay from the monthly salary, and the overtime price per hour. */
+export function overtimeRates(emp: { salary: number; workHours?: number | null }, settings: HrSettings) {
+  const daily = (emp.salary || 0) / settings.daysPerMonth;
+  const hourlyRate = roundMoney(daily / Math.max(1, employeeHours(emp, settings)));
+  return { hourlyRate, overtimeRate: roundMoney(hourlyRate * settings.overtimeMultiplier) };
+}
+
 export function parseHrSettings(raw: string | null | undefined): HrSettings {
   if (!raw) return { ...DEFAULT_HR_SETTINGS };
   try {
     const parsed = JSON.parse(raw) as Partial<HrSettings>;
-    const absenceMultiplier = Number(parsed.absenceMultiplier);
+    const absenceMultiplier = parsed.absenceMultiplier == null
+      ? DEFAULT_HR_SETTINGS.absenceMultiplier
+      : Number(parsed.absenceMultiplier);
     return {
       daysPerMonth: Math.max(1, Number(parsed.daysPerMonth) || DEFAULT_HR_SETTINGS.daysPerMonth),
       hoursPerDay: Math.max(1, Number(parsed.hoursPerDay) || DEFAULT_HR_SETTINGS.hoursPerDay),

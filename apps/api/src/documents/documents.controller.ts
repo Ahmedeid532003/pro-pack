@@ -11,6 +11,8 @@ class LineDto {
   @IsNumber() quantity!: number;
   @IsNumber() unitPrice!: number;
   @IsOptional() @IsNumber() discount?: number;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
 }
 
 class CreateDocDto {

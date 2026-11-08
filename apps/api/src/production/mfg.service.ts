@@ -226,6 +226,9 @@ export class MfgService implements OnModuleInit {
 
   async createJob(data: {
     title?: string;
+    customerName?: string;
+    width?: number | null;
+    thickness?: number | null;
     notes?: string;
     createdById?: string;
     issues: { productId: string; quantity: number }[];
@@ -266,6 +269,9 @@ export class MfgService implements OnModuleInit {
           number,
           status: MfgJobStatus.PRINTING,
           title: data.title?.trim() || `تصنيع ${number}`,
+          customerName: data.customerName?.trim() || null,
+          width: data.width ?? null,
+          thickness: data.thickness ?? null,
           notes: data.notes?.trim() || null,
           rawWarehouseId: raw.id,
           finishedWarehouseId: finished.id,

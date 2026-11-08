@@ -130,7 +130,7 @@ export class SalesService {
     shiftId?: string | null;
     confirm?: boolean;
     createdById?: string;
-    lines: { productId: string; quantity: number; unitPrice: number; discount?: number; netWeight?: number }[];
+    lines: { productId: string; quantity: number; unitPrice: number; discount?: number; netWeight?: number; width?: number | null; thickness?: number | null }[];
   }) {
     await assertPeriodsOpen(this.prisma, data.invoiceDate || new Date());
     if (data.shiftId) await this.assertOpenShift(data.shiftId);
@@ -152,6 +152,8 @@ export class SalesService {
         total: lineAmount(billQty, l.unitPrice, l.discount),
         unitCost: costOf(l.productId),
         netWeight: weight > 0 ? weight : null,
+        width: l.width ?? null,
+        thickness: l.thickness ?? null,
         stockQty: billQty,
       };
     });
@@ -295,7 +297,7 @@ export class SalesService {
     payments?: TenderInput[];
     confirm?: boolean;
     shiftId?: string | null;
-    lines: { id?: string; productId: string; quantity: number; unitPrice: number; discount?: number; netWeight?: number }[];
+    lines: { id?: string; productId: string; quantity: number; unitPrice: number; discount?: number; netWeight?: number; width?: number | null; thickness?: number | null }[];
   }) {
     const inv = await this.prisma.salesInvoice.findUnique({
       where: { id },
@@ -324,6 +326,8 @@ export class SalesService {
         discount: l.discount || 0,
         total: billQty * l.unitPrice - (l.discount || 0),
         netWeight: weight > 0 ? weight : null,
+        width: l.width ?? null,
+        thickness: l.thickness ?? null,
         stockQty: billQty,
       };
     });
@@ -441,7 +445,7 @@ export class SalesService {
       receipts: { id: string; number: string; amount: number; cashAccountId: string | null; paymentMethod: string; referenceNo: string | null }[];
     },
     data: { customerId: string; warehouseId: string; invoiceDate?: string; notes?: string; shiftId?: string | null },
-    lines: { id?: string; productId: string; quantity: number; unitPrice: number; unitCost: number; discount: number; total: number }[],
+    lines: { id?: string; productId: string; quantity: number; unitPrice: number; unitCost: number; discount: number; total: number; width?: number | null; thickness?: number | null }[],
     parts: TenderInput[],
     subtotal: number,
     discount: number,
@@ -498,6 +502,8 @@ export class SalesService {
           unitCost,
           discount: line.discount,
           total: line.total,
+          width: line.width ?? null,
+          thickness: line.thickness ?? null,
         };
         if (previous) await tx.salesInvoiceLine.update({ where: { id: previous.id }, data: row });
         else await tx.salesInvoiceLine.create({ data: { invoiceId: id, ...row } });

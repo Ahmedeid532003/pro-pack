@@ -26,8 +26,13 @@ class EmployeeDto {
   @IsOptional() @IsNumber() commissionPercent?: number;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() hireDate?: string;
+  @IsOptional() @IsNumber() workHours?: number | null;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class OvertimeApprovalDto {
+  @IsBoolean() approved!: boolean;
 }
 
 class LeaveDto {
@@ -55,6 +60,7 @@ class AttendanceDto {
   @IsOptional() @IsNumber() lateMinutes?: number;
   @IsOptional() @IsNumber() permissionMinutes?: number;
   @IsOptional() @IsNumber() overtimeMinutes?: number;
+  @IsOptional() @IsBoolean() overtimeApproved?: boolean;
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -199,6 +205,11 @@ export class HrController {
   @Delete('attendance/:id')
   deleteAttendance(@Param('id') id: string) {
     return this.service.deleteAttendance(id);
+  }
+
+  @Post('attendance/:id/overtime')
+  approveOvertime(@Param('id') id: string, @Body() dto: OvertimeApprovalDto) {
+    return this.service.approveOvertime(id, dto.approved);
   }
 
   @Post('attendance/punch-in')

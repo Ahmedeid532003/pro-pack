@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SequenceService } from '../common/sequence.service';
 import { assertPeriodsOpen } from '../settings/period-lock';
 import { pageResult, readPage } from '../common/paging';
+import { productSizeFilter, productSizeTerms } from '../common/size-search';
+import { STOCK_COUNT_KEY, STOCK_COUNT_REF } from '../common/stock-count';
 
 const CONFIRMED: InvoiceStatus[] = [
   InvoiceStatus.CONFIRMED,
@@ -18,8 +20,14 @@ export class StockService {
     private sequence: SequenceService,
   ) {}
 
-  balances(warehouseId?: string, search?: string, warehouseIds?: string[] | null) {
+  balances(
+    warehouseId?: string,
+    search?: string,
+    warehouseIds?: string[] | null,
+    size?: { width?: string; thickness?: string },
+  ) {
     const scopeIds = warehouseId ? [warehouseId] : warehouseIds || undefined;
+    const sizeFilter = productSizeFilter(size?.width, size?.thickness);
     return this.prisma.stockBalance.findMany({
       where: {
         ...(scopeIds?.length ? { warehouseId: { in: scopeIds } } : {}),
@@ -29,9 +37,11 @@ export class StockService {
                 { product: { name: { contains: search } } },
                 { product: { sku: { contains: search } } },
                 { warehouse: { name: { contains: search } } },
+                ...productSizeTerms(search).map((product) => ({ product })),
               ],
             }
           : {}),
+        ...(sizeFilter ? { product: sizeFilter } : {}),
       },
       include: {
         product: {
@@ -54,6 +64,7 @@ export class StockService {
           { product: { name: { contains: q } } },
           { product: { sku: { contains: q } } },
           { product: { barcode: { contains: q } } },
+          ...productSizeTerms(q).map((product) => ({ product })),
         ],
       },
       include: { product: true, warehouse: true },
@@ -71,8 +82,13 @@ export class StockService {
   }
 
   /** أرصدة مع تكلفة وتفاصيل دفعات الشراء */
-  async valuation(warehouseId?: string, search?: string, warehouseIds?: string[] | null) {
-    const balances = await this.balances(warehouseId, search, warehouseIds);
+  async valuation(
+    warehouseId?: string,
+    search?: string,
+    warehouseIds?: string[] | null,
+    size?: { width?: string; thickness?: string },
+  ) {
+    const balances = await this.balances(warehouseId, search, warehouseIds, size);
 
     const productIds = [...new Set(balances.map((b) => b.productId))];
     const purchaseLines = productIds.length
@@ -519,11 +535,17 @@ export class StockService {
               type: StockMovementType.ADJUSTMENT,
               quantity: delta,
               unitCost: product?.costPrice || 0,
+              reference: data.mode === 'set' ? STOCK_COUNT_REF : undefined,
               note: data.note || (data.mode === 'set' ? 'جرد / رصيد افتتاحي' : 'تسوية'),
             },
           });
           count += 1;
         }
+      }
+      if (data.mode === 'set') {
+        const key = `${STOCK_COUNT_KEY}.${data.warehouseId}`;
+        const value = new Date().toISOString();
+        await tx.setting.upsert({ where: { key }, create: { key, value }, update: { value } });
       }
       return { ok: true, count };
     });

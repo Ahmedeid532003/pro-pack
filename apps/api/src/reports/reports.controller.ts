@@ -39,6 +39,14 @@ export class ReportsController {
     return this.service.inventory(await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery, warehouseId));
   }
 
+  @Get('count-sheet')
+  async countSheet(
+    @Req() req: { user: { userId: string; role: string } },
+    @Query('warehouseIds') warehouseIdsQuery?: string,
+  ) {
+    return this.service.countSheet(await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
+  }
+
   @Get('sales')
   async sales(
     @Req() req: { user: { userId: string; role: string } },

@@ -20,6 +20,8 @@ class TxDto {
   @IsOptional() @IsString() paymentMethod?: string;
   @IsOptional() @IsString() reference?: string;
   @IsOptional() @IsString() voucherKind?: 'RECEIPT' | 'PAYOUT' | 'MANUAL';
+  @IsOptional() @IsString() receivedBy?: string;
+  @IsOptional() @IsString() deliveredBy?: string;
 }
 
 class ReceiptDto {

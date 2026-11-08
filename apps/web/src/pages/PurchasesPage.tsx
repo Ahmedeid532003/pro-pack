@@ -9,6 +9,7 @@ import { DualPrintCopies } from '../components/DualPrintCopies';
 import { AddLineButton, EditorErrors, EditorSection, InvoiceEditor, LineCard, PriceHint, SummaryRow } from '../components/InvoiceEditor';
 import { ProductPicker } from '../components/ProductPicker';
 import { productsForWarehouse } from '../lib/productWarehouse';
+import { optionalNumber, sizeText } from '../lib/size';
 import { TenderEditor, type PayMethodOption, type TenderPart } from '../components/TenderEditor';
 import { useConfirm, useToast } from '../lib/feedback';
 import { useColumns } from '../lib/columns';
@@ -26,6 +27,8 @@ type Line = {
   quantity: number | '';
   unitCost: number | '';
   netWeight: number | '';
+  width: number | '';
+  thickness: number | '';
 };
 
 type Invoice = {
@@ -46,6 +49,8 @@ type Invoice = {
     quantity: number;
     discount?: number;
     netWeight?: number | null;
+    width?: number | null;
+    thickness?: number | null;
     batchNumber?: string | null;
     expiryDate?: string | null;
     unitCost: number;
@@ -56,7 +61,7 @@ type Invoice = {
 };
 
 const emptyLine = (): Line => ({
-  productId: '', quantity: '', unitCost: '', netWeight: '',
+  productId: '', quantity: '', unitCost: '', netWeight: '', width: '', thickness: '',
 });
 const num = (v: number | '') => (v === '' ? 0 : v);
 /** الوزن أساس السعر — لو مفيش وزن يتحسب بالعدد */
@@ -244,6 +249,8 @@ export function PurchasesPage() {
             unitCost: num(l.unitCost),
             discount: 0,
             netWeight: l.netWeight === '' ? undefined : num(l.netWeight),
+            width: optionalNumber(l.width),
+            thickness: optionalNumber(l.thickness),
           })),
         }),
       });
@@ -293,6 +300,8 @@ export function PurchasesPage() {
         quantity: sameAsWeight ? '' : l.quantity,
         unitCost: l.unitCost,
         netWeight: weight,
+        width: l.width ?? '',
+        thickness: l.thickness ?? '',
       };
     }));
     setView(null);
@@ -617,6 +626,14 @@ export function PurchasesPage() {
                       {formatMoney(lineTotal(l))}
                     </div>
                   </div>
+                  <div className="sm:col-span-3">
+                    <Label>العرض (سم)</Label>
+                    <NumberInput value={l.width} onValueChange={(v) => updateLine(i, { width: v })} placeholder="اختياري" />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <Label>السمك (سم)</Label>
+                    <NumberInput value={l.thickness} onValueChange={(v) => updateLine(i, { thickness: v })} placeholder="اختياري" />
+                  </div>
                   <div className="sm:col-span-12 text-[11px] text-muted">
                     الإجمالي = الوزن × السعر (لو فيه وزن). الكمية بالكيلو.
                   </div>
@@ -661,7 +678,7 @@ export function PurchasesPage() {
                   ],
                   lineHeaders: ['الصنف', 'ك', 'الوزن الصافي', 'سعر الشراء', 'الإجمالي'],
                   lines: view.lines.map((l) => ({
-                    name: l.product.name,
+                    name: sizeText(l.width, l.thickness) ? `${l.product.name} (${sizeText(l.width, l.thickness)})` : l.product.name,
                     quantity: l.quantity,
                     unitPrice: l.unitCost,
                     total: l.total,
@@ -695,7 +712,10 @@ export function PurchasesPage() {
                 <tbody>
                   {view.lines.map((l, i) => (
                     <tr key={i}>
-                      <Td>{l.product.name}</Td>
+                      <Td>
+                        {l.product.name}
+                        {sizeText(l.width, l.thickness) && <div className="text-[11px] text-slate-600">{sizeText(l.width, l.thickness)}</div>}
+                      </Td>
                       <Td>{l.netWeight != null && Math.abs(l.quantity - l.netWeight) < 0.0001 ? '—' : l.quantity}</Td>
                       <Td>{l.netWeight ?? '—'}</Td>
                       <Td>{formatMoney(l.unitCost)}</Td>

@@ -16,6 +16,8 @@ class LineDto {
   @IsOptional() @IsNumber() netWeight?: number;
   @IsOptional() @IsString() batchNumber?: string;
   @IsOptional() @IsString() expiryDate?: string;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
 }
 
 class TenderDto {

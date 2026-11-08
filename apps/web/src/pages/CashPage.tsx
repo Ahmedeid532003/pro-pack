@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Plus, Wallet, Banknote, Building2,
+  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Plus, Printer, Wallet, Banknote, Building2,
 } from 'lucide-react';
 import { api, formatDate, formatMoney } from '../lib/api';
 import { dueTone } from '../lib/due';
 import { DueAmount } from '../components/DueAmount';
 import {
-  Badge, Button, Card, CardHeader, Empty, Input, Label, Modal, NumberInput, PageHeader, Pager, SearchBox, Select, StatCard, StatGrid, Table, Td, Th,
+  Badge, Button, Card, CardHeader, Empty, Input, Label, Modal, NumberInput, PageHeader, Pager, PrintHeader, SearchBox, Select, StatCard, StatGrid, Table, Td, Th,
 } from '../components/ui';
 
 type PayMethod = {
@@ -20,8 +20,14 @@ type Tx = {
   paymentMethod?: string; reference?: string | null;
   voucherKind?: 'RECEIPT' | 'PAYOUT' | 'MANUAL' | null;
   voucherNumber?: string | null;
+  receivedBy?: string | null;
+  deliveredBy?: string | null;
+  createdBy?: { fullName: string } | null;
   account: { name: string };
 };
+
+const VOUCHER_LABEL = (t: Pick<Tx, 'voucherKind' | 'direction'>) =>
+  t.voucherKind === 'RECEIPT' ? 'إذن استلام نقدية' : t.voucherKind === 'PAYOUT' ? 'إذن صرف نقدية' : t.direction === 'IN' ? 'حركة وارد' : 'حركة صادر';
 type Party = { id: string; name: string; balance?: number; code?: string };
 type OpenInvoice = {
   id: string; number: string; total: number; paidAmount: number; remaining: number; status: string; invoiceDate: string;
@@ -73,7 +79,9 @@ export function CashPage() {
   const [txForm, setTxForm] = useState({
     accountId: '', direction: 'IN' as 'IN' | 'OUT', amount: '' as number | '', description: '',
     voucherKind: 'RECEIPT' as 'RECEIPT' | 'PAYOUT' | 'MANUAL',
+    receivedBy: '', deliveredBy: '',
   });
+  const [printTx, setPrintTx] = useState<Tx | null>(null);
   const [receiptForm, setReceiptForm] = useState({
     customerId: '', methodId: '', amount: '' as number | '', salesInvoiceId: '',
     referenceNo: '', note: '',
@@ -151,7 +159,7 @@ export function CashPage() {
   async function saveTx() {
     const voucherKind = txForm.voucherKind;
     const direction = voucherKind === 'RECEIPT' ? 'IN' : voucherKind === 'PAYOUT' ? 'OUT' : txForm.direction;
-    await api('/cash/transactions', {
+    const created = await api<Tx>('/cash/transactions', {
       method: 'POST',
       body: JSON.stringify({
         accountId: txForm.accountId,
@@ -159,12 +167,15 @@ export function CashPage() {
         amount: txForm.amount === '' ? 0 : txForm.amount,
         description: txForm.description,
         voucherKind,
+        receivedBy: txForm.receivedBy.trim() || undefined,
+        deliveredBy: txForm.deliveredBy.trim() || undefined,
       }),
     });
     setTxOpen(false);
-    setTxForm({ accountId: '', direction: 'IN', amount: '', description: '', voucherKind: 'RECEIPT' });
+    setTxForm({ accountId: '', direction: 'IN', amount: '', description: '', voucherKind: 'RECEIPT', receivedBy: '', deliveredBy: '' });
     setTab('movements');
     load();
+    if (created.voucherKind !== 'MANUAL') setPrintTx(created);
   }
 
   async function saveReceipt() {
@@ -257,7 +268,7 @@ export function CashPage() {
             <Button
               variant="secondary"
               onClick={() => {
-                setTxForm({ accountId: '', direction: 'IN', amount: '', description: '', voucherKind: 'RECEIPT' });
+                setTxForm({ accountId: '', direction: 'IN', amount: '', description: '', voucherKind: 'RECEIPT', receivedBy: '', deliveredBy: '' });
                 setTxOpen(true);
               }}
             >
@@ -265,7 +276,7 @@ export function CashPage() {
             </Button>
             <Button
               onClick={() => {
-                setTxForm({ accountId: '', direction: 'OUT', amount: '', description: '', voucherKind: 'PAYOUT' });
+                setTxForm({ accountId: '', direction: 'OUT', amount: '', description: '', voucherKind: 'PAYOUT', receivedBy: '', deliveredBy: '' });
                 setTxOpen(true);
               }}
             >
@@ -398,7 +409,7 @@ export function CashPage() {
             <Table>
               <thead>
                 <tr>
-                  <Th>رقم الإذن</Th><Th>التاريخ</Th><Th>الحساب</Th><Th>البيان</Th><Th>النوع</Th><Th>المبلغ</Th>
+                  <Th>رقم الإذن</Th><Th>التاريخ</Th><Th>الحساب</Th><Th>البيان</Th><Th>المسلِّم / المستلِم</Th><Th>النوع</Th><Th>المبلغ</Th><Th className="no-print"></Th>
                 </tr>
               </thead>
               <tbody>
@@ -408,12 +419,23 @@ export function CashPage() {
                     <Td className="whitespace-nowrap text-slate-500">{formatDate(t.createdAt)}</Td>
                     <Td className="font-semibold text-slate-700">{t.account.name}</Td>
                     <Td className="max-w-md truncate text-slate-600">{t.description}</Td>
+                    <Td className="text-xs text-slate-600">
+                      {t.deliveredBy || t.receivedBy ? (
+                        <>
+                          <div>سلّم: {t.deliveredBy || '—'}</div>
+                          <div>استلم: {t.receivedBy || '—'}</div>
+                        </>
+                      ) : '—'}
+                    </Td>
                     <Td>
                       <Badge tone={t.direction === 'IN' ? 'emerald' : 'rose'}>
                         {t.voucherKind === 'RECEIPT' ? 'إذن استلام' : t.voucherKind === 'PAYOUT' ? 'إذن صرف' : t.direction === 'IN' ? 'وارد' : 'صادر'}
                       </Badge>
                     </Td>
                     <Td className={`whitespace-nowrap font-extrabold ${t.direction === 'IN' ? 'text-emerald-700' : 'text-rose-600'}`}>{t.direction === 'IN' ? '+' : '−'} {formatMoney(t.amount)}</Td>
+                    <Td className="no-print">
+                      <Button variant="ghost" onClick={() => setPrintTx(t)}><Printer size={14} /> طباعة</Button>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
@@ -639,10 +661,70 @@ export function CashPage() {
               placeholder={txForm.voucherKind === 'PAYOUT' ? 'سبب الصرف' : 'سبب الاستلام'}
             />
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label>اسم المُسلِّم</Label>
+              <Input value={txForm.deliveredBy} onChange={(e) => setTxForm({ ...txForm, deliveredBy: e.target.value })} placeholder="مين اللي سلّم" />
+            </div>
+            <div>
+              <Label>اسم المُستلِم</Label>
+              <Input value={txForm.receivedBy} onChange={(e) => setTxForm({ ...txForm, receivedBy: e.target.value })} placeholder="مين اللي استلم" />
+            </div>
+          </div>
           <Button className="w-full" onClick={saveTx}>
             {txForm.voucherKind === 'PAYOUT' ? 'تأكيد إذن الصرف' : txForm.voucherKind === 'RECEIPT' ? 'تأكيد إذن الاستلام' : 'حفظ'}
           </Button>
         </div>
+      </Modal>
+
+      <Modal open={!!printTx} onClose={() => setPrintTx(null)} title={printTx ? `${VOUCHER_LABEL(printTx)} ${printTx.voucherNumber || ''}` : ''} wide>
+        {printTx && (
+          <div>
+            <div className="mb-4 flex justify-end no-print">
+              <Button onClick={() => window.print()}><Printer size={16} /> طباعة / PDF</Button>
+            </div>
+            <PrintHeader title={`${VOUCHER_LABEL(printTx)} رقم ${printTx.voucherNumber || printTx.reference || ''}`} subtitle={formatDate(printTx.createdAt)} />
+            <div className="grid gap-3 text-sm sm:grid-cols-2">
+              {([
+                ['رقم الإذن', printTx.voucherNumber || printTx.reference || '—'],
+                ['التاريخ', formatDate(printTx.createdAt)],
+                ['الخزنة / الحساب', printTx.account.name],
+                ['المبلغ', formatMoney(printTx.amount)],
+                ['المُسلِّم', printTx.deliveredBy],
+                ['المُستلِم', printTx.receivedBy],
+              ] as [string, string | null | undefined][]).map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-slate-200 px-3 py-2.5">
+                  <div className="text-[11px] font-bold text-slate-500">{label}</div>
+                  <div className="mt-1 min-h-[1.5rem] font-bold text-slate-900">
+                    {value || <span className="inline-block h-5 w-full border-b border-dotted border-slate-500" />}
+                  </div>
+                </div>
+              ))}
+              <div className="rounded-xl border border-slate-200 px-3 py-2.5 sm:col-span-2">
+                <div className="text-[11px] font-bold text-slate-500">البيان</div>
+                <div className="mt-1 font-bold text-slate-900">{printTx.description}</div>
+              </div>
+            </div>
+            <div className="mt-12 grid grid-cols-2 gap-8 text-center text-sm">
+              {([
+                ['توقيع المُسلِّم', printTx.deliveredBy],
+                ['توقيع المُستلِم', printTx.receivedBy],
+              ] as [string, string | null | undefined][]).map(([label, name]) => (
+                <div key={label} className="rounded-xl border-2 border-dashed border-slate-400 p-4">
+                  <div className="mb-2 text-xs font-bold text-slate-500">{label}</div>
+                  <div className="mx-auto mb-3 h-16 w-full max-w-[14rem] border-b-2 border-slate-500" />
+                  <div className="font-extrabold text-slate-900">
+                    {name || <span className="inline-block h-5 w-40 border-b border-dotted border-slate-500" />}
+                  </div>
+                  <div className="mt-1 text-xs text-muted">الاسم</div>
+                </div>
+              ))}
+            </div>
+            {printTx.createdBy?.fullName && (
+              <div className="mt-6 text-xs text-muted">حُرِّر بواسطة: {printTx.createdBy.fullName}</div>
+            )}
+          </div>
+        )}
       </Modal>
 
       <Modal open={accOpen} onClose={() => setAccOpen(false)} title="طريقة دفع جديدة">

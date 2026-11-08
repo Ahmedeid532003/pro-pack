@@ -7,6 +7,7 @@ import { DocExportBar } from '../components/DocExportBar';
 import { DualPrintCopies } from '../components/DualPrintCopies';
 import { ProductPicker } from '../components/ProductPicker';
 import { productsForWarehouse } from '../lib/productWarehouse';
+import { optionalNumber, sizeText } from '../lib/size';
 import {
   Button, Card, CardHeader, Empty, ErrorState, Input, Label, Modal, NumberInput, PageHeader, PrintHeader, SearchBox, Select, StatCard, StatGrid, StatusBadge,
   Table, TableSkeleton, Td, Th,
@@ -32,13 +33,13 @@ type Doc = {
   customer?: { name: string } | null;
   supplier?: { name: string } | null;
   warehouse?: { name: string } | null;
-  lines?: { id: string; quantity: number; unitPrice: number; total: number; product?: { name: string } }[];
+  lines?: { id: string; quantity: number; unitPrice: number; total: number; description?: string | null; width?: number | null; thickness?: number | null; product?: { name: string } }[];
 };
 
 type Product = { id: string; name: string; sku?: string; salePrice: number; costPrice: number; barcode?: string | null; warehouses?: { warehouseId: string }[] };
-type Line = { productId: string; description: string; quantity: number | ''; unitPrice: number | '' };
+type Line = { productId: string; description: string; quantity: number | ''; unitPrice: number | ''; width: number | ''; thickness: number | '' };
 
-const emptyLine = (): Line => ({ productId: '', description: '', quantity: 1, unitPrice: '' });
+const emptyLine = (): Line => ({ productId: '', description: '', quantity: 1, unitPrice: '', width: '', thickness: '' });
 
 export function DocumentsPage() {
   const toast = useToast();
@@ -128,6 +129,8 @@ export function DocumentsPage() {
             description: l.description.trim() || undefined,
             quantity: l.quantity === '' ? 0 : l.quantity,
             unitPrice: priceOf(l),
+            width: optionalNumber(l.width),
+            thickness: optionalNumber(l.thickness),
           })),
         }),
       });
@@ -269,11 +272,11 @@ export function DocumentsPage() {
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200">
-            <div className="grid grid-cols-[1fr_1fr_90px_120px_110px_36px] gap-2 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-              <span>الصنف</span><span>البيان</span><span>الكمية</span><span>السعر</span><span>الإجمالي</span><span />
+            <div className="grid grid-cols-[1fr_1fr_80px_80px_90px_110px_100px_36px] gap-2 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+              <span>الصنف</span><span>البيان</span><span>العرض سم</span><span>السمك سم</span><span>الكمية</span><span>السعر</span><span>الإجمالي</span><span />
             </div>
             {lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1fr_90px_120px_110px_36px] items-center gap-2 border-t border-slate-100 px-3 py-2">
+              <div key={i} className="grid grid-cols-[1fr_1fr_80px_80px_90px_110px_100px_36px] items-center gap-2 border-t border-slate-100 px-3 py-2">
                 <ProductPicker
                   products={productsForWarehouse(products, form.warehouseId, lines.map((line) => line.productId)).map((product) => ({
                     id: product.id,
@@ -291,6 +294,8 @@ export function DocumentsPage() {
                   placeholder="بيان البند"
                   onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
                 />
+                <NumberInput value={l.width} placeholder="اختياري" onValueChange={(v) => setLines(lines.map((x, j) => (j === i ? { ...x, width: v } : x)))} />
+                <NumberInput value={l.thickness} placeholder="اختياري" onValueChange={(v) => setLines(lines.map((x, j) => (j === i ? { ...x, thickness: v } : x)))} />
                 <NumberInput value={l.quantity} onValueChange={(v) => setLines(lines.map((x, j) => (j === i ? { ...x, quantity: v } : x)))} />
                 <NumberInput value={l.unitPrice} placeholder={l.productId ? String(priceOf(l)) : ''} onValueChange={(v) => setLines(lines.map((x, j) => (j === i ? { ...x, unitPrice: v } : x)))} />
                 <span className="text-sm font-bold tabular-nums">{formatMoney((l.quantity === '' ? 0 : l.quantity) * priceOf(l))}</span>
@@ -335,7 +340,7 @@ export function DocumentsPage() {
                   ['الحالة', printDoc.status],
                 ],
                 lines: (printDoc.lines || []).map((line) => ({
-                  name: line.product?.name || '—',
+                  name: [line.product?.name || '—', line.description, sizeText(line.width, line.thickness)].filter(Boolean).join(' · '),
                   quantity: line.quantity,
                   unitPrice: line.unitPrice,
                   total: line.total,
@@ -355,7 +360,11 @@ export function DocumentsPage() {
                 <tbody>
                   {(printDoc.lines || []).map((line) => (
                     <tr key={line.id}>
-                      <Td>{line.product?.name || '—'}</Td>
+                      <Td>
+                        {line.product?.name || '—'}
+                        {line.description && <div className="text-[11px] text-slate-600">{line.description}</div>}
+                        {sizeText(line.width, line.thickness) && <div className="text-[11px] text-slate-600">{sizeText(line.width, line.thickness)}</div>}
+                      </Td>
                       <Td>{line.quantity}</Td>
                       <Td>{formatMoney(line.unitPrice)}</Td>
                       <Td>{formatMoney(line.total)}</Td>

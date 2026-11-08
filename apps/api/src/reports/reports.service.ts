@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { STOCK_COUNT_KEY, STOCK_COUNT_REF } from '../common/stock-count';
 async function loadExcel() {
   return import('exceljs');
 }
@@ -22,6 +23,47 @@ export class ReportsService {
       include: { product: true, warehouse: true },
       orderBy: { product: { name: 'asc' } },
     });
+  }
+
+  /** بيان جرد: كل أرصدة المخزن مع تاريخ آخر جرد لكل صنف وللمخزن */
+  async countSheet(warehouseIds?: string[]) {
+    const scope = warehouseIds?.length ? { warehouseId: { in: warehouseIds } } : {};
+    const [balances, counts, warehouseCounts] = await Promise.all([
+      this.prisma.stockBalance.findMany({
+        where: { ...scope, NOT: { quantity: 0 } },
+        include: {
+          product: { select: { id: true, sku: true, name: true, unit: true, width: true, thickness: true, weight: true } },
+          warehouse: { select: { id: true, code: true, name: true } },
+        },
+        orderBy: [{ warehouse: { name: 'asc' } }, { product: { name: 'asc' } }],
+      }),
+      this.prisma.stockMovement.findMany({
+        where: { ...scope, type: 'ADJUSTMENT', reference: STOCK_COUNT_REF },
+        select: { warehouseId: true, productId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.setting.findMany({ where: { key: { startsWith: `${STOCK_COUNT_KEY}.` } } }),
+    ]);
+    const lastByItem = new Map<string, Date>();
+    for (const row of counts) {
+      const key = `${row.warehouseId}:${row.productId}`;
+      if (!lastByItem.has(key)) lastByItem.set(key, row.createdAt);
+    }
+    const lastByWarehouse = new Map(
+      warehouseCounts.map((row) => [row.key.slice(STOCK_COUNT_KEY.length + 1), row.value]),
+    );
+    const rows = balances.map((row) => ({
+      warehouse: row.warehouse,
+      product: row.product,
+      quantity: row.quantity,
+      lastCountAt: lastByItem.get(`${row.warehouseId}:${row.productId}`) || lastByWarehouse.get(row.warehouseId) || null,
+    }));
+    const lastCountAt = [...lastByWarehouse.entries()]
+      .filter(([id]) => !warehouseIds?.length || warehouseIds.includes(id))
+      .map(([, at]) => at)
+      .sort()
+      .pop() || null;
+    return { rows, lastCountAt, totalQty: rows.reduce((sum, row) => sum + row.quantity, 0) };
   }
 
   async salesSummary(from?: string, to?: string, warehouseIds?: string[]) {

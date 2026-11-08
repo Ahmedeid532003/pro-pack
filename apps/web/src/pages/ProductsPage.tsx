@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Barcode, Boxes, Coins, Columns3, Package, Pencil, Plus, Tag, TrendingDown, TriangleAlert, Upload, Warehouse } from 'lucide-react';
+import { Boxes, Coins, Columns3, Package, Pencil, Plus, Ruler, Tag, TrendingDown, TriangleAlert, Upload, Warehouse, Weight, X } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { api, formatMoney, getApiBase, initialQuery, productImageUrl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useConfirm, useToast } from '../lib/feedback';
 import { ListBar, IconAction } from '../components/ListBar';
 import { useColumns } from '../lib/columns';
+import { optionalNumber, sizeText } from '../lib/size';
 import { WarehouseMultiSelect } from '../components/WarehouseMultiSelect';
+import { SizeFilter } from '../components/SizeFilter';
 import {
   Badge, Button, Card, Empty, Field, Input, Label, Modal, NumberInput, PageHeader, Pager, Select, StatCard, StatGrid, Table, Td, Th,
 } from '../components/ui';
@@ -47,6 +49,9 @@ type Product = {
   packUnit?: string | null;
   packSize?: number;
   packWeight?: number | null;
+  width?: number | null;
+  thickness?: number | null;
+  weight?: number | null;
   imageFile?: string | null;
   fieldValues: { fieldId: string; value: string; field: CustomField }[];
   stockBalances: { quantity: number; warehouse: { name: string } }[];
@@ -70,20 +75,21 @@ const emptyCreate = {
   packUnit: '',
   packSize: '' as number | '',
   packWeight: '' as number | '',
+  width: '' as number | '',
+  thickness: '' as number | '',
+  weight: '' as number | '',
   warehouseIds: [] as string[],
 };
 
 type ProductForm = typeof emptyCreate;
 
 function productIssues(form: ProductForm, items: Product[], ignoreId?: string, _costPrice = 0) {
-  const errors: Partial<Record<'sku' | 'name' | 'barcode', string>> = {};
+  const errors: Partial<Record<'sku' | 'name', string>> = {};
   const warnings: Record<string, string> = {};
   const sku = form.sku.trim();
   const name = form.name.trim();
-  const barcode = form.barcode.trim();
   if (sku && items.some((item) => item.id !== ignoreId && item.sku.toLowerCase() === sku.toLowerCase())) errors.sku = 'هذا الكود مستخدم لصنف آخر';
   if (name.length < 2) errors.name = 'اكتب اسمًا من حرفين على الأقل';
-  if (barcode && items.some((item) => item.id !== ignoreId && item.barcode && item.barcode === barcode)) errors.barcode = 'هذا الباركود مسجل لصنف آخر';
   return { errors, warnings };
 }
 
@@ -101,6 +107,7 @@ function ProductFormWizard({
   setFieldValues,
   costPrice,
   onAddCategory,
+  onUnitsChange,
   onSubmit,
   submitLabel,
 }: {
@@ -108,6 +115,7 @@ function ProductFormWizard({
   setForm: (form: ProductForm) => void;
   issues: ReturnType<typeof productIssues>;
   units: string[];
+  onUnitsChange: (units: string[]) => Promise<void>;
   categories: { id: string; name: string }[];
   warehouses: { id: string; name: string }[];
   fields: CustomField[];
@@ -120,7 +128,10 @@ function ProductFormWizard({
 }) {
   const [step, setStep] = useState(0);
   const [categoryName, setCategoryName] = useState('');
-  const blocked = step === 0 && !!(issues.errors.sku || issues.errors.name || issues.errors.barcode);
+  const [unitName, setUnitName] = useState('');
+  const [unitsOpen, setUnitsOpen] = useState(false);
+  const blocked = step === 0 && !!(issues.errors.sku || issues.errors.name);
+  const unitOptions = units.includes(form.unit) || !form.unit ? units : [form.unit, ...units];
 
   return (
     <div>
@@ -147,18 +158,56 @@ function ProductFormWizard({
           <Field label="اسم الصنف" icon={<Package size={16} />} error={issues.errors.name}>
             <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </Field>
-          <Field label="وحدة القياس" icon={<Boxes size={16} />} hint="النظام بالكيلو">
-            <Select value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })}>
-              <option value="كيلو">كيلو</option>
-              <option value="ك">ك</option>
-              {units.filter((unit) => unit !== 'كيلو' && unit !== 'ك' && unit !== 'عدد' && unit !== 'قطعة').map((unit) => (
-                <option key={unit} value={unit}>{unit}</option>
-              ))}
-            </Select>
+          <Field label="وحدة القياس" icon={<Boxes size={16} />}>
+            <div className="flex gap-2">
+              <Select value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })}>
+                {unitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+              </Select>
+              <Button type="button" variant="secondary" onClick={() => setUnitsOpen((open) => !open)}>
+                {unitsOpen ? 'إغلاق' : 'تعديل الوحدات'}
+              </Button>
+            </div>
           </Field>
-          <Field label="الباركود" icon={<Barcode size={16} />} error={issues.errors.barcode}>
-            <Input value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
-          </Field>
+          {unitsOpen && (
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap gap-1.5">
+                {units.map((unit) => (
+                  <span key={unit} className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                    {unit}
+                    <button
+                      type="button"
+                      title="حذف الوحدة"
+                      className="text-slate-400 hover:text-rose-600"
+                      onClick={() => onUnitsChange(units.filter((item) => item !== unit))}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input value={unitName} onChange={(event) => setUnitName(event.target.value)} placeholder="وحدة جديدة (مثلاً: متر مربع)" />
+                <Button type="button" variant="secondary" onClick={async () => {
+                  const name = unitName.trim();
+                  if (!name) return;
+                  await onUnitsChange([...units, name]);
+                  setForm({ ...form, unit: name });
+                  setUnitName('');
+                }}>إضافة</Button>
+              </div>
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="العرض (سم)" icon={<Ruler size={16} />}>
+              <NumberInput value={form.width} onValueChange={(width) => setForm({ ...form, width })} placeholder="اختياري" />
+            </Field>
+            <Field label="السمك (سم)" icon={<Ruler size={16} />}>
+              <NumberInput value={form.thickness} onValueChange={(thickness) => setForm({ ...form, thickness })} placeholder="اختياري" />
+            </Field>
+            <Field label="الوزن" icon={<Weight size={16} />}>
+              <NumberInput value={form.weight} onValueChange={(weight) => setForm({ ...form, weight })} placeholder="اختياري" />
+            </Field>
+          </div>
           <Field label="التصنيف" icon={<Warehouse size={16} />}>
             <Select value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}>
               <option value="">بدون</option>
@@ -246,6 +295,9 @@ export function ProductsPage() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState(initialQuery);
+  const [widthFilter, setWidthFilter] = useState<number | ''>('');
+  const [thicknessFilter, setThicknessFilter] = useState<number | ''>('');
+  const [units, setUnits] = useState<string[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [fieldsOpen, setFieldsOpen] = useState(false);
@@ -260,18 +312,25 @@ export function ProductsPage() {
     fieldType: 'TEXT',
     options: '',
   });
-  const [listFilter, setListFilter] = useState<'all' | 'low' | 'barcode' | 'loss'>('all');
+  const [listFilter, setListFilter] = useState<'all' | 'low' | 'loss'>('all');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>(() => (localStorage.getItem(VIEW_KEY) === 'cards' ? 'cards' : 'table'));
 
-  async function load() {
-    const params = new URLSearchParams({ page: String(listPage), pageSize: String(pageSize) });
+  function filterParams(params = new URLSearchParams()) {
     if (search.trim()) params.set('search', search.trim());
     if (listFilter !== 'all') params.set('filter', listFilter);
-    const [products, defs, cats, wh] = await Promise.all([
+    if (widthFilter !== '') params.set('width', String(widthFilter));
+    if (thicknessFilter !== '') params.set('thickness', String(thicknessFilter));
+    return params;
+  }
+
+  async function load() {
+    const params = filterParams(new URLSearchParams({ page: String(listPage), pageSize: String(pageSize) }));
+    const [products, defs, cats, wh, unitList] = await Promise.all([
       api<{ items: Product[]; total: number; summary: typeof stats }>(`/products?${params}`),
       api<CustomField[]>('/products/fields'),
       api<{ id: string; name: string }[]>('/products/categories'),
       api<{ id: string; name: string }[]>('/warehouses'),
+      api<string[]>('/products/units'),
     ]);
     setItems(products.items);
     setTotal(products.total);
@@ -279,28 +338,38 @@ export function ProductsPage() {
     setFields(defs);
     setCategories(cats);
     setWarehouses(wh);
+    setUnits(unitList);
   }
 
-  useEffect(() => { setListPage(1); }, [search, listFilter, pageSize]);
+  async function saveUnits(next: string[]) {
+    try {
+      setUnits(await api<string[]>('/products/units', { method: 'POST', body: JSON.stringify({ units: next }) }));
+      toast.success('تم حفظ وحدات القياس');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'تعذر حفظ الوحدات');
+    }
+  }
+
+  useEffect(() => { setListPage(1); }, [search, listFilter, pageSize, widthFilter, thicknessFilter]);
   useEffect(() => {
     const timer = window.setTimeout(() => { load().catch(() => undefined); }, 200);
     return () => window.clearTimeout(timer);
-  }, [listPage, pageSize, search, listFilter]);
+  }, [listPage, pageSize, search, listFilter, widthFilter, thicknessFilter]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const pageFrom = total === 0 ? 0 : (Math.min(listPage, pageCount) - 1) * pageSize + 1;
   const pageTo = Math.min(Math.min(listPage, pageCount) * pageSize, total);
   const productColumns = useColumns('m5azen.cols.products', [
     { id: 'sku', label: 'الكود' },
-    { id: 'barcode', label: 'الباركود' },
     { id: 'name', label: 'الاسم' },
+    { id: 'size', label: 'المقاس (عرض × سمك)' },
+    { id: 'weight', label: 'الوزن' },
     { id: 'category', label: 'القسم' },
     { id: 'cost', label: 'سعر الشراء' },
     { id: 'margin', label: 'نسبة الربح' },
     { id: 'qty', label: 'الرصيد' },
     ...fields.slice(0, 3).map((field) => ({ id: `field-${field.id}`, label: field.label })),
   ]);
-  const units = stats.unitNames;
 
   useEffect(() => {
     if (!createOpen) return;
@@ -317,17 +386,21 @@ export function ProductsPage() {
     sheet.columns = [
       { header: 'الكود', key: 'sku', width: 16 },
       { header: 'الاسم', key: 'name', width: 28 },
+      { header: 'العرض (سم)', key: 'width', width: 12 },
+      { header: 'السمك (سم)', key: 'thickness', width: 12 },
+      { header: 'الوزن', key: 'weight', width: 12 },
       { header: 'الوحدة', key: 'unit', width: 12 },
-      { header: 'الرصيد (ك)', key: 'qty', width: 12 },
+      { header: 'الرصيد', key: 'qty', width: 12 },
     ];
-    const params = new URLSearchParams();
-    if (search.trim()) params.set('search', search.trim());
-    if (listFilter !== 'all') params.set('filter', listFilter);
+    const params = filterParams();
     const rows = await api<Product[]>(`/products${params.toString() ? `?${params}` : ''}`);
     rows.forEach((product) => {
       sheet.addRow({
         sku: product.sku,
         name: product.name,
+        width: product.width ?? '',
+        thickness: product.thickness ?? '',
+        weight: product.weight ?? '',
         unit: product.unit || 'كيلو',
         qty: product.stockBalances.reduce((sum, row) => sum + row.quantity, 0),
       });
@@ -365,7 +438,7 @@ export function ProductsPage() {
 
   async function saveCreate() {
     const problems = productIssues(createForm, items).errors;
-    if (problems.sku || problems.name || problems.barcode) {
+    if (problems.sku || problems.name) {
       toast.error('راجع الحقول المظللة قبل الحفظ');
       return;
     }
@@ -375,17 +448,19 @@ export function ProductsPage() {
         body: JSON.stringify({
           sku: createForm.sku.trim() || undefined,
           name: createForm.name.trim(),
-          unit: createForm.unit || 'كيلو',
+          unit: createForm.unit || units[0] || 'كيلو',
           costPrice: 0,
           salePrice: 0,
           wholesalePrice: 0,
           minStock: 0,
-          barcode: createForm.barcode.trim(),
           brand: createForm.brand,
           categoryId: createForm.categoryId || undefined,
           packUnit: null,
           packSize: 1,
           packWeight: null,
+          width: optionalNumber(createForm.width),
+          thickness: optionalNumber(createForm.thickness),
+          weight: optionalNumber(createForm.weight),
           warehouseIds: createForm.warehouseIds,
           fieldValues: fieldPayload(createFieldValues),
         }),
@@ -418,6 +493,9 @@ export function ProductsPage() {
       packUnit: '',
       packSize: '',
       packWeight: '',
+      width: p.width ?? '',
+      thickness: p.thickness ?? '',
+      weight: p.weight ?? '',
       warehouseIds: (p.warehouses || []).map((row) => row.warehouseId),
     });
     const map: Record<string, string> = {};
@@ -429,7 +507,7 @@ export function ProductsPage() {
   async function saveEdit() {
     if (!editing) return;
     const problems = productIssues(editForm, items, editing.id, editing.costPrice).errors;
-    if (problems.sku || problems.name || problems.barcode) {
+    if (problems.sku || problems.name) {
       toast.error('راجع الحقول المظللة قبل الحفظ');
       return;
     }
@@ -440,12 +518,14 @@ export function ProductsPage() {
           sku: editForm.sku.trim() || undefined,
           name: editForm.name.trim(),
           unit: editForm.unit || 'كيلو',
-          barcode: editForm.barcode.trim(),
           brand: editForm.brand,
           categoryId: editForm.categoryId || null,
           packUnit: null,
           packSize: 1,
           packWeight: null,
+          width: optionalNumber(editForm.width),
+          thickness: optionalNumber(editForm.thickness),
+          weight: optionalNumber(editForm.weight),
           warehouseIds: editForm.warehouseIds,
           fieldValues: fieldPayload(editFieldValues),
         }),
@@ -482,7 +562,7 @@ export function ProductsPage() {
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as { form?: ProductForm; fields?: Record<string, string> };
-        if (parsed.form && (parsed.form.sku || parsed.form.name || parsed.form.barcode)) {
+        if (parsed.form && (parsed.form.sku || parsed.form.name)) {
           setCreateForm({ ...emptyCreate, ...parsed.form });
           setCreateFieldValues(parsed.fields || {});
           restored = true;
@@ -563,26 +643,31 @@ export function ProductsPage() {
           </>
         }
       />
-      <StatGrid cols={5}>
+      <StatGrid cols={4}>
         <StatCard label="إجمالي الأصناف" value={stats.total} hint={`${stats.units.toLocaleString('ar-EG')} وحدة في المخازن`} icon={Package} tone="brand" active={listFilter === 'all'} onClick={() => setListFilter('all')} />
         <StatCard label="قيمة المخزون بالتكلفة" value={formatMoney(stats.stockValue)} hint="سعر الشراء × الرصيد" icon={Coins} tone="emerald" />
         <StatCard label="تحت حد الطلب" value={stats.low} hint="تحتاج إعادة شراء" icon={TriangleAlert} tone="amber" active={listFilter === 'low'} onClick={() => setListFilter('low')} />
-        <StatCard label="بدون باركود" value={stats.noBarcode} hint="أضف باركود لتسريع البيع" icon={Barcode} tone="sky" active={listFilter === 'barcode'} onClick={() => setListFilter('barcode')} />
         <StatCard label="سعر أقل من التكلفة" value={stats.loss} hint="مراجعة التسعير" icon={TrendingDown} tone="rose" active={listFilter === 'loss'} onClick={() => setListFilter('loss')} />
       </StatGrid>
       <Card>
         <div className="mb-4 flex flex-wrap gap-1.5 rounded-xl bg-slate-100/80 p-1 sm:w-fit">
-          {([['all', 'الكل', stats.total], ['low', 'نقص مخزون', stats.low], ['barcode', 'بدون باركود', stats.noBarcode], ['loss', 'سعر خاسر', stats.loss]] as const).map(([key, label, count]) => (
+          {([['all', 'الكل', stats.total], ['low', 'نقص مخزون', stats.low], ['loss', 'سعر خاسر', stats.loss]] as const).map(([key, label, count]) => (
             <button key={key} type="button" onClick={() => setListFilter(key)} className={`inline-flex h-8 items-center gap-2 rounded-lg px-3 text-[13px] font-bold transition ${listFilter === key ? 'bg-white text-brand-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-800'}`}>
               {label}
               <span className={`rounded-md px-1.5 text-[11px] tabular-nums ${listFilter === key ? 'bg-brand-50 text-brand-700' : 'bg-white/70 text-slate-500'}`}>{count}</span>
             </button>
           ))}
         </div>
+        <SizeFilter
+          width={widthFilter}
+          thickness={thicknessFilter}
+          onWidth={setWidthFilter}
+          onThickness={setThicknessFilter}
+        />
         <ListBar
           search={search}
           onSearch={setSearch}
-          placeholder="بحث بالاسم، الكود، الباركود..."
+          placeholder="بحث بالاسم أو الكود أو المقاس (مثلاً 30x0.5)"
           view={viewMode}
           onView={(mode) => { setViewMode(mode); localStorage.setItem(VIEW_KEY, mode); }}
           onExport={exportProducts}
@@ -603,6 +688,9 @@ export function ProductsPage() {
                         <div className="font-mono text-[11px] font-bold text-brand-700" dir="ltr">{product.sku}</div>
                         <div className="mt-0.5 line-clamp-2 font-bold leading-6 text-slate-900">{product.name}</div>
                         <div className="text-xs text-muted">{product.category?.name || product.brand || 'بدون تصنيف'}</div>
+                        {sizeText(product.width, product.thickness) && (
+                          <div className="mt-1 text-xs font-bold text-slate-600">{sizeText(product.width, product.thickness)}</div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-sm">
@@ -622,8 +710,9 @@ export function ProductsPage() {
               <tr>
                 <Th>الإجراءات</Th>
                 {productColumns.visible('sku') && <Th>الكود</Th>}
-                {productColumns.visible('barcode') && <Th>الباركود</Th>}
                 {productColumns.visible('name') && <Th>الاسم</Th>}
+                {productColumns.visible('size') && <Th>المقاس</Th>}
+                {productColumns.visible('weight') && <Th>الوزن</Th>}
                 {productColumns.visible('category') && <Th>القسم</Th>}
                 {productColumns.visible('cost') && <Th>سعر الشراء</Th>}
                 {productColumns.visible('margin') && <Th>نسبة الربح</Th>}
@@ -643,7 +732,6 @@ export function ProductsPage() {
                       <IconAction label="تعديل" onClick={() => openEdit(p)}><Pencil size={14} /></IconAction>
                     </Td>
                     {productColumns.visible('sku') && <Td><span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-bold text-slate-700" dir="ltr">{p.sku}</span></Td>}
-                    {productColumns.visible('barcode') && <Td><span className="font-mono text-xs text-slate-500" dir="ltr">{p.barcode || '—'}</span></Td>}
                     {productColumns.visible('name') && (
                       <Td>
                         <div className="flex min-w-[14rem] items-center gap-3">
@@ -659,6 +747,8 @@ export function ProductsPage() {
                         </div>
                       </Td>
                     )}
+                    {productColumns.visible('size') && <Td className="whitespace-nowrap font-semibold text-slate-700">{sizeText(p.width, p.thickness) || '—'}</Td>}
+                    {productColumns.visible('weight') && <Td className="whitespace-nowrap">{p.weight ?? '—'}</Td>}
                     {productColumns.visible('category') && <Td>{p.category?.name ? <Badge tone="brand">{p.category.name}</Badge> : <span className="text-muted">{p.brand || '—'}</span>}</Td>}
                     {productColumns.visible('cost') && <Td className="whitespace-nowrap text-slate-600">{formatMoney(p.costPrice)}</Td>}
                     {productColumns.visible('margin') && <Td><Badge tone={p.costPrice > 0 && p.salePrice < p.costPrice ? 'rose' : 'emerald'}>{margin}</Badge></Td>}
@@ -700,6 +790,7 @@ export function ProductsPage() {
           setForm={setCreateForm}
           issues={productIssues(createForm, items)}
           units={units}
+          onUnitsChange={saveUnits}
           categories={categories}
           warehouses={warehouses}
           fields={fields}
@@ -744,6 +835,7 @@ export function ProductsPage() {
             setForm={setEditForm}
             issues={productIssues(editForm, items, editing.id, editing.costPrice)}
             units={units}
+            onUnitsChange={saveUnits}
             categories={categories}
             warehouses={warehouses}
             fields={fields}

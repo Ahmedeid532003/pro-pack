@@ -101,7 +101,7 @@ export class PurchasesService {
     confirm?: boolean;
     createdById?: string;
     idempotencyKey?: string;
-    lines: { productId: string; quantity: number; unitCost: number; discount?: number; netWeight?: number; batchNumber?: string; expiryDate?: string }[];
+    lines: { productId: string; quantity: number; unitCost: number; discount?: number; netWeight?: number; batchNumber?: string; expiryDate?: string; width?: number | null; thickness?: number | null }[];
   }) {
     if (!data.lines?.length) throw new BadRequestException('أضف بنوداً للفاتورة');
     const claim = await claimRequest(this.prisma, { key: data.idempotencyKey, scope: 'purchases', userId: data.createdById });
@@ -127,7 +127,7 @@ export class PurchasesService {
     payments?: TenderInput[];
     confirm?: boolean;
     createdById?: string;
-    lines: { productId: string; quantity: number; unitCost: number; discount?: number; netWeight?: number; batchNumber?: string; expiryDate?: string }[];
+    lines: { productId: string; quantity: number; unitCost: number; discount?: number; netWeight?: number; batchNumber?: string; expiryDate?: string; width?: number | null; thickness?: number | null }[];
   }) {
     await assertPeriodsOpen(this.prisma, data.invoiceDate || new Date());
     const number = await this.sequence.next('purchases', 'PUR');
@@ -144,6 +144,8 @@ export class PurchasesService {
         discount: 0,
         total: lineAmount(billQty, l.unitCost, 0),
         netWeight: weight > 0 ? weight : null,
+        width: l.width ?? null,
+        thickness: l.thickness ?? null,
         batchNumber: null as string | null,
         expiryDate: null as Date | null,
         stockQty: billQty,
@@ -305,7 +307,7 @@ export class PurchasesService {
     paidAmount?: number;
     payments?: TenderInput[];
     confirm?: boolean;
-    lines: { id?: string; productId: string; quantity: number; unitCost: number; discount?: number; netWeight?: number; batchNumber?: string; expiryDate?: string }[];
+    lines: { id?: string; productId: string; quantity: number; unitCost: number; discount?: number; netWeight?: number; batchNumber?: string; expiryDate?: string; width?: number | null; thickness?: number | null }[];
   }) {
     const inv = await this.prisma.purchaseInvoice.findUnique({
       where: { id },
@@ -328,6 +330,8 @@ export class PurchasesService {
         discount: 0,
         total: billQty * l.unitCost,
         netWeight: weight > 0 ? weight : null,
+        width: l.width ?? null,
+        thickness: l.thickness ?? null,
         batchNumber: null as string | null,
         expiryDate: null as Date | null,
         stockQty: billQty,
@@ -454,7 +458,7 @@ export class PurchasesService {
       payments: { id: string; number: string; amount: number; cashAccountId: string | null; paymentMethod: string; referenceNo: string | null }[];
     },
     data: { supplierId: string; warehouseId: string; invoiceDate?: string; notes?: string },
-    lines: { id?: string; productId: string; quantity: number; unitCost: number; discount: number; total: number; netWeight: number | null; batchNumber: string | null; expiryDate: Date | null }[],
+    lines: { id?: string; productId: string; quantity: number; unitCost: number; discount: number; total: number; netWeight: number | null; batchNumber: string | null; expiryDate: Date | null; width?: number | null; thickness?: number | null }[],
     parts: TenderInput[],
     subtotal: number,
     discount: number,
@@ -507,6 +511,8 @@ export class PurchasesService {
           discount: line.discount,
           total: line.total,
           netWeight: line.netWeight,
+          width: line.width ?? null,
+          thickness: line.thickness ?? null,
           batchNumber: line.batchNumber,
           expiryDate: line.expiryDate,
         };

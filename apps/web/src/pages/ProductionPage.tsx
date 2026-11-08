@@ -5,6 +5,7 @@ import {
 import { api, formatDate, formatMoney } from '../lib/api';
 import { useAccess } from '../lib/auth';
 import { useConfirm, useToast } from '../lib/feedback';
+import { optionalNumber, sizeText } from '../lib/size';
 import { ProductPicker } from '../components/ProductPicker';
 import { DualPrintCopies } from '../components/DualPrintCopies';
 import {
@@ -105,6 +106,9 @@ type Job = {
   number: string;
   status: JobStatus;
   title?: string | null;
+  customerName?: string | null;
+  width?: number | null;
+  thickness?: number | null;
   notes?: string | null;
   createdAt: string;
   transferQty?: number | null;
@@ -127,6 +131,7 @@ type JobListItem = {
   number: string;
   status: JobStatus;
   title?: string | null;
+  customerName?: string | null;
   createdAt: string;
   finishedProduct?: { name: string } | null;
   issues: { product: { name: string } }[];
@@ -197,6 +202,10 @@ export function ProductionPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createNotes, setCreateNotes] = useState('');
+  const [createCustomer, setCreateCustomer] = useState('');
+  const [createWidth, setCreateWidth] = useState<number | ''>('');
+  const [createThickness, setCreateThickness] = useState<number | ''>('');
+  const [customerNames, setCustomerNames] = useState<string[]>([]);
   const [boxLines, setBoxLines] = useState<{ productId: string; quantity: number | '' }[]>([{ productId: '', quantity: '' }]);
 
   const [stageForm, setStageForm] = useState<StageForm>({
@@ -232,6 +241,9 @@ export function ProductionPage() {
       setJobs(j);
       setRawStock(stock);
       setLoaded(true);
+      api<{ name: string }[]>('/customers')
+        .then((rows) => setCustomerNames(rows.map((row) => row.name)))
+        .catch(() => setCustomerNames([]));
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'تعذر التحميل');
       setLoaded(true);
@@ -395,12 +407,22 @@ export function ProductionPage() {
     try {
       const created = await api<Job>('/production/mfg/jobs', {
         method: 'POST',
-        body: JSON.stringify({ title: createTitle.trim() || undefined, notes: createNotes.trim() || undefined, issues }),
+        body: JSON.stringify({
+          title: createTitle.trim() || undefined,
+          customerName: createCustomer.trim() || undefined,
+          width: optionalNumber(createWidth),
+          thickness: optionalNumber(createThickness),
+          notes: createNotes.trim() || undefined,
+          issues,
+        }),
       });
       toast.success('تم صرف الخامات وبدأت مرحلة الطباعة');
       setCreateOpen(false);
       setCreateTitle('');
       setCreateNotes('');
+      setCreateCustomer('');
+      setCreateWidth('');
+      setCreateThickness('');
       setBoxLines([{ productId: '', quantity: '' }]);
       await loadList();
       setJob(created);
@@ -548,7 +570,10 @@ export function ProductionPage() {
                     </Badge>
                   </div>
                   <div className="mt-1 truncate text-sm font-bold">{row.title || row.issues.map((i) => i.product.name).join(' · ')}</div>
-                  <div className="mt-1 text-[11px] text-muted">{formatDate(row.createdAt)}</div>
+                  <div className="mt-1 text-[11px] text-muted">
+                    {formatDate(row.createdAt)}
+                    {row.customerName ? ` · ${row.customerName}` : ''}
+                  </div>
                 </button>
               ))}
             </div>
@@ -569,6 +594,13 @@ export function ProductionPage() {
                   <div className="mt-1 text-sm text-muted">
                     {job.rawWarehouse.name} → {job.finishedWarehouse.name}
                   </div>
+                  {(job.customerName || sizeText(job.width, job.thickness)) && (
+                    <div className="mt-1 text-sm font-semibold text-slate-700">
+                      {job.customerName && <>العميل: {job.customerName}</>}
+                      {job.customerName && sizeText(job.width, job.thickness) && ' · '}
+                      {sizeText(job.width, job.thickness) && <>المقاس: {sizeText(job.width, job.thickness)}</>}
+                    </div>
+                  )}
                 </div>
                 <Badge tone={job.status === 'DONE' ? 'emerald' : job.status === 'READY' ? 'amber' : 'brand'}>
                   {STATUS_LABEL[job.status]}
@@ -1019,6 +1051,8 @@ export function ProductionPage() {
                   <div className="mb-2 text-sm">
                     {STATUS_LABEL[job.status]} · {formatDate(job.createdAt)}
                     {job.finishedProduct ? ` · ${job.finishedProduct.name}` : ''}
+                    {job.customerName ? ` · العميل: ${job.customerName}` : ''}
+                    {sizeText(job.width, job.thickness) ? ` · المقاس: ${sizeText(job.width, job.thickness)}` : ''}
                   </div>
                   <Table>
                     <thead>
@@ -1055,6 +1089,20 @@ export function ProductionPage() {
           <Field label="عنوان الأمر (اختياري)">
             <Input value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} placeholder="مثال: تشغيلية فيلم طباعة" />
           </Field>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="اسم العميل (اختياري)">
+              <Input list="mfg-customers" value={createCustomer} onChange={(e) => setCreateCustomer(e.target.value)} placeholder="اختياري" />
+              <datalist id="mfg-customers">
+                {customerNames.map((name) => <option key={name} value={name} />)}
+              </datalist>
+            </Field>
+            <Field label="العرض (سم)">
+              <NumberInput value={createWidth} onValueChange={setCreateWidth} placeholder="اختياري" />
+            </Field>
+            <Field label="السمك (سم)">
+              <NumberInput value={createThickness} onValueChange={setCreateThickness} placeholder="اختياري" />
+            </Field>
+          </div>
           <Field label="ملاحظات">
             <Input value={createNotes} onChange={(e) => setCreateNotes(e.target.value)} />
           </Field>

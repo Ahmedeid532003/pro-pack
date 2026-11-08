@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeftRight, Boxes, Coins, Eye, PackageCheck, PackageX, Pencil, Printer, Search, Trash2 } from 'lucide-react';
 import { api, formatDate, formatMoney } from '../lib/api';
 import { useConfirm, useToast } from '../lib/feedback';
 import { ProductPicker } from '../components/ProductPicker';
 import { productsForWarehouse } from '../lib/productWarehouse';
+import { sizeText } from '../lib/size';
+import { SizeFilter } from '../components/SizeFilter';
 import {
   Badge, Button, Card, Empty, Input, Label, Modal, NumberInput, PageHeader, Pager, PrintHeader, SearchBox, Select, StatCard, StatGrid, Table, Td, Th,
 } from '../components/ui';
@@ -37,6 +39,8 @@ type StockItem = {
     name: string;
     unit: string;
     costPrice: number;
+    width?: number | null;
+    thickness?: number | null;
     fieldValues: FieldValue[];
   };
   warehouse: { id: string; name: string };
@@ -86,6 +90,8 @@ export function StockPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [warehouseId, setWarehouseId] = useState(() => params.get('warehouse') || '');
   const [search, setSearch] = useState('');
+  const [widthFilter, setWidthFilter] = useState<number | ''>('');
+  const [thicknessFilter, setThicknessFilter] = useState<number | ''>('');
   const [transferOpen, setTransferOpen] = useState(false);
   const [countOpen, setCountOpen] = useState(false);
   const [expiryOpen, setExpiryOpen] = useState(false);
@@ -123,7 +129,10 @@ export function StockPage() {
   async function load() {
     const q = new URLSearchParams();
     if (warehouseId) q.set('warehouseId', warehouseId);
-    const qs = q.toString() ? `?${q}` : '';
+    const valQuery = new URLSearchParams(q);
+    if (widthFilter !== '') valQuery.set('width', String(widthFilter));
+    if (thicknessFilter !== '') valQuery.set('thickness', String(thicknessFilter));
+    const qs = valQuery.toString() ? `?${valQuery}` : '';
     const mov = new URLSearchParams(q);
     mov.set('page', String(movPage));
     mov.set('pageSize', String(movPageSize));
@@ -148,16 +157,20 @@ export function StockPage() {
   useEffect(() => { setMovPage(1); }, [search, warehouseId, movPageSize]);
   useEffect(() => {
     load();
-  }, [warehouseId, search, movPage, movPageSize]);
+  }, [warehouseId, search, movPage, movPageSize, widthFilter, thicknessFilter]);
 
   const visibleItems = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const raw = search.trim().toLowerCase();
+    const q = /^\d+(?:\.\d+)?\s*[x×*]\s*\d+(?:\.\d+)?$/.test(raw) ? raw.replace(/[×*]/g, 'x').replace(/\s+/g, '') : raw;
     if (!q) return data.items;
     return data.items.filter((b) => {
       const hay = [
         b.product.name,
         b.product.sku,
         b.warehouse.name,
+        b.product.width ?? '',
+        b.product.thickness ?? '',
+        b.product.width != null || b.product.thickness != null ? `${b.product.width ?? ''}x${b.product.thickness ?? ''}` : '',
         ...b.batches.flatMap((batch) => [
           batch.invoiceNumber,
           batch.supplierName,
@@ -276,6 +289,9 @@ export function StockPage() {
               <Search size={16} /> بحث في مخازن أخرى
             </Button>
             <Button variant="secondary" onClick={() => { setCountForm({ ...countForm, mode: 'set' }); setCountOpen(true); }}>جرد / رصيد افتتاحي</Button>
+            <Link to={`/reports?tab=count${warehouseId ? `&warehouses=${warehouseId}` : ''}`}>
+              <Button variant="secondary">بيان جرد</Button>
+            </Link>
             <Button variant="secondary" onClick={async () => {
               setExpiryRows(await api('/stock/expiry?days=30'));
               setExpiryOpen(true);
@@ -311,7 +327,7 @@ export function StockPage() {
         <SearchBox
           value={search}
           onChange={setSearch}
-          placeholder="بحث صنف / كود / مخزن..."
+          placeholder="بحث صنف / كود / مخزن / مقاس (30x0.5)..."
           className="!w-72 max-w-full"
         />
         <Select className="!w-52" value={warehouseId} onChange={(e) => {
@@ -331,6 +347,7 @@ export function StockPage() {
 
       {tab === 'balances' ? (
         <Card>
+          <SizeFilter width={widthFilter} thickness={thicknessFilter} onWidth={setWidthFilter} onThickness={setThicknessFilter} />
           {visibleItems.length === 0 ? <Empty text="لا توجد أرصدة" /> : (
             <Table>
               <thead>
@@ -338,6 +355,7 @@ export function StockPage() {
                   <Th>المخزن</Th>
                   <Th>الكود</Th>
                   <Th>الصنف</Th>
+                  <Th>المقاس</Th>
                   <Th>الكمية</Th>
                   <Th>تكلفة الوحدة</Th>
                   <Th>إجمالي التكلفة</Th>
@@ -351,6 +369,7 @@ export function StockPage() {
                     <Td className="text-slate-600">{b.warehouse.name}</Td>
                     <Td><span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-xs font-bold text-slate-700" dir="ltr">{b.product.sku}</span></Td>
                     <Td className="font-bold text-slate-900">{b.product.name}</Td>
+                    <Td className="whitespace-nowrap text-slate-600">{sizeText(b.product.width, b.product.thickness) || '—'}</Td>
                     <Td>
                       <span className={`font-extrabold ${b.quantity <= 0 ? 'text-rose-600' : 'text-slate-900'}`}>{b.quantity.toLocaleString('ar-EG')}</span>
                       <span className="ms-1 text-xs text-muted">{b.product.unit}</span>

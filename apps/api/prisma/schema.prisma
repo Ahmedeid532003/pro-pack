@@ -185,6 +185,11 @@ model Product {
   packSize       Float    @default(1)
   /// وزن البكرة / العبوة (كجم أو حسب العرف)
   packWeight     Float?
+  /// العرض بالسنتيمتر
+  width          Float?
+  /// السمك بالسنتيمتر
+  thickness      Float?
+  weight         Float?
   imageFile      String?
   isActive       Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -211,6 +216,7 @@ model Product {
   mfgIssueLines       MfgIssueLine[]
   mfgStageMaterials   MfgStageMaterial[]
   customerProdOrders  CustomerProdOrder[]
+  prodOrderLines      CustomerProdOrderLine[]
 }
 
 /// أصناف مربوطة بمخزن معيّن. لو الصنف مفيهوش صفوف هنا يبقى متاح لكل المخازن.
@@ -344,6 +350,8 @@ model CustomerContract {
   title        String   @default("Contract")
   terms        String?
   notes        String?
+  width        Float?
+  thickness    Float?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -427,6 +435,8 @@ model CashTransaction {
   reference     String?
   voucherKind   CashVoucherKind @default(MANUAL)
   voucherNumber String?
+  receivedBy    String?
+  deliveredBy   String?
   createdById   String?
   createdAt     DateTime        @default(now())
 
@@ -482,6 +492,8 @@ model SalesInvoiceLine {
   total     Float
   /// الوزن الصافي — هو أساس التسعير والمخزون إن وُجد
   netWeight Float?
+  width     Float?
+  thickness Float?
 
   invoice SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product Product      @relation(fields: [productId], references: [id])
@@ -530,6 +542,8 @@ model PurchaseInvoiceLine {
   /// بيانات الشحنة — تختلف مع كل شراء (اختياري)
   batchNumber String?
   expiryDate  DateTime?
+  width       Float?
+  thickness   Float?
 
   invoice PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product Product         @relation(fields: [productId], references: [id])
@@ -835,6 +849,8 @@ model TradeDocumentLine {
   unitPrice   Float
   discount    Float   @default(0)
   total       Float
+  width       Float?
+  thickness   Float?
 
   document TradeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
   product  Product       @relation(fields: [productId], references: [id])
@@ -865,12 +881,30 @@ model CustomerProdOrder {
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id])
-  product  Product? @relation(fields: [productId], references: [id])
+  customer Customer                @relation(fields: [customerId], references: [id])
+  product  Product?                @relation(fields: [productId], references: [id])
+  lines    CustomerProdOrderLine[]
 
   @@index([customerId])
   @@index([orderDate])
   @@index([status])
+}
+
+model CustomerProdOrderLine {
+  id          String  @id @default(cuid())
+  orderId     String
+  productId   String?
+  description String
+  width       Float?
+  thickness   Float?
+  quantity    Float
+  unitPrice   Float   @default(0)
+  sortOrder   Int     @default(0)
+
+  order   CustomerProdOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?          @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
 }
 
 model AuditLog {
@@ -1112,6 +1146,8 @@ model HrEmployee {
   commissionPercent Float    @default(0)
   phone             String?
   hireDate          DateTime?
+  /// ساعات العمل اليومية لهذا الموظف — فاضي = إعداد الموارد البشرية العام
+  workHours         Float?
   isActive          Boolean  @default(true)
   notes             String?
   createdAt         DateTime @default(now())
@@ -1168,6 +1204,8 @@ model HrAttendance {
   lateMinutes       Int                 @default(0)
   permissionMinutes Int                 @default(0)
   overtimeMinutes   Int                 @default(0)
+  /// الإضافي لا يدخل المرتب إلا بعد التأكيد
+  overtimeApproved  Boolean             @default(false)
   notes             String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
@@ -1393,6 +1431,9 @@ model MfgJob {
   number              String       @unique
   status              MfgJobStatus @default(OPEN)
   title               String?
+  customerName        String?
+  width               Float?
+  thickness           Float?
   notes               String?
   rawWarehouseId      String
   finishedWarehouseId String

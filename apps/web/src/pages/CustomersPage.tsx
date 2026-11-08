@@ -4,6 +4,7 @@ import { loadExcel } from '../lib/excel';
 import { downloadExcelBuffer, exportInvoiceExcel } from '../lib/docExport';
 import { api, formatDate, formatMoney, initialQuery } from '../lib/api';
 import { urgentInvoiceDate } from '../lib/due';
+import { optionalNumber } from '../lib/size';
 import { DueAmount } from '../components/DueAmount';
 import { DocExportBar } from '../components/DocExportBar';
 import { useFeedback } from '../lib/feedback';
@@ -14,7 +15,7 @@ import { EntityWorkspace } from '../components/EntityWorkspace';
 import { WarehouseMultiSelect } from '../components/WarehouseMultiSelect';
 import { StatementLedger } from '../components/StatementLedger';
 import {
-  Badge, Button, Card, Empty, Field, Input, Label, Modal, PageHeader, Pager, PrintHeader, Select, StatCard, StatGrid, Table, Td, Th, todayIso,
+  Badge, Button, Card, Empty, Field, Input, Label, Modal, NumberInput, PageHeader, Pager, PrintHeader, Select, StatCard, StatGrid, Table, Td, Th, todayIso,
 } from '../components/ui';
 
 type Customer = {
@@ -39,6 +40,8 @@ type Contract = {
   title: string;
   terms?: string | null;
   notes?: string | null;
+  width?: number | null;
+  thickness?: number | null;
   customer: Customer;
 };
 
@@ -47,12 +50,18 @@ type CustomerForm = {
   name: string;
   phone: string;
   address: string;
-  priceList: string;
   isActive: boolean;
   warehouseIds: string[];
 };
 
-const emptyCustomer: CustomerForm = { code: '', name: '', phone: '', address: '', priceList: 'RETAIL', isActive: true, warehouseIds: [] };
+const emptyCustomer: CustomerForm = { code: '', name: '', phone: '', address: '', isActive: true, warehouseIds: [] };
+
+/** Empty contract values print as a dotted line so they can be filled in by hand. */
+function FillIn({ value }: { value?: string | number | null }) {
+  const empty = value == null || String(value).trim() === '' || value === '—';
+  if (!empty) return <>{value}</>;
+  return <span className="inline-block h-5 w-full min-w-[8rem] border-b border-dotted border-slate-500 align-bottom" />;
+}
 const CUSTOMER_VIEW = 'm5azen.customersView';
 
 type StatementPayload = {
@@ -88,7 +97,15 @@ export function CustomersPage() {
   const [contractSearch, setContractSearch] = useState('');
   const [contractOpen, setContractOpen] = useState(false);
   const [contractView, setContractView] = useState<Contract | null>(null);
-  const [contractForm, setContractForm] = useState({ customerId: '', contractDate: todayIso(), title: 'عقد توريد وتعامل', terms: '', notes: '' });
+  const [contractForm, setContractForm] = useState({
+    customerId: '',
+    contractDate: todayIso(),
+    title: 'عقد توريد وتعامل',
+    terms: '',
+    notes: '',
+    width: '' as number | '',
+    thickness: '' as number | '',
+  });
   const [contractSaving, setContractSaving] = useState(false);
   const [pickerCustomers, setPickerCustomers] = useState<Customer[]>([]);
   const feedback = useFeedback();
@@ -168,7 +185,6 @@ export function CustomersPage() {
       name: row.name,
       phone: row.phone || '',
       address: row.address || '',
-      priceList: row.priceList || 'RETAIL',
       isActive: row.isActive !== false,
       warehouseIds: (row.warehouses || []).map((row) => row.warehouseId),
     });
@@ -184,7 +200,6 @@ export function CustomersPage() {
         name: form.name.trim(),
         phone: form.phone.trim(),
         address: form.address.trim(),
-        priceList: form.priceList,
         warehouseIds: form.warehouseIds,
         ...(editingId ? { isActive: form.isActive } : {}),
       };
@@ -246,6 +261,8 @@ export function CustomersPage() {
       title: 'عقد توريد وتعامل',
       terms: '',
       notes: '',
+      width: '',
+      thickness: '',
     });
     try {
       const rows = await api<Customer[]>('/customers');
@@ -271,6 +288,8 @@ export function CustomersPage() {
           title: contractForm.title.trim() || 'عقد توريد وتعامل',
           terms: contractForm.terms.trim() || undefined,
           notes: contractForm.notes.trim() || undefined,
+          width: optionalNumber(contractForm.width),
+          thickness: optionalNumber(contractForm.thickness),
         }),
       });
       feedback.success('تم إنشاء التعاقد');
@@ -316,7 +335,8 @@ export function CustomersPage() {
         ['الهاتف', row.customer.phone || '—'],
         ['البريد', row.customer.email || '—'],
         ['العنوان', row.customer.address || '—'],
-        ['قائمة السعر', row.customer.priceList === 'WHOLESALE' ? 'جملة' : 'قطاعي'],
+        ['العرض (سم)', row.width ?? '—'],
+        ['السمك (سم)', row.thickness ?? '—'],
         ['الرصيد', row.customer.balance],
         ['حد الائتمان', row.customer.creditLimit || 0],
         ['ملاحظات العميل', row.customer.notes || '—'],
@@ -485,7 +505,7 @@ export function CustomersPage() {
                           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-xs font-extrabold text-brand-700">{row.name.trim()[0]}</span>
                           <div className="min-w-0">
                             <div className="truncate font-bold text-slate-800">{row.name}</div>
-                            <div className="text-[11px] text-muted">{row.priceList === 'WHOLESALE' ? 'عميل جملة' : 'عميل قطاعي'}</div>
+                            <div className="text-[11px] text-muted" dir="ltr">{row.code}</div>
                           </div>
                           {row.isActive === false && <Badge tone="slate">موقوف</Badge>}
                         </div>
@@ -572,12 +592,6 @@ export function CustomersPage() {
           <Field label="العنوان" icon={<MapPin size={16} />}>
             <Input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
           </Field>
-          <Field label="قائمة السعر">
-            <Select value={form.priceList} onChange={(event) => setForm({ ...form, priceList: event.target.value })}>
-              <option value="RETAIL">قطاعي</option>
-              <option value="WHOLESALE">جملة</option>
-            </Select>
-          </Field>
           <div>
             <Label>
               <span className="inline-flex items-center gap-1.5"><Warehouse size={15} className="text-slate-400" /> المخازن</span>
@@ -640,6 +654,14 @@ export function CustomersPage() {
           <Field label="عنوان التعاقد">
             <Input value={contractForm.title} onChange={(e) => setContractForm({ ...contractForm, title: e.target.value })} />
           </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="العرض (سم) — اختياري">
+              <NumberInput value={contractForm.width} onValueChange={(width) => setContractForm({ ...contractForm, width })} />
+            </Field>
+            <Field label="السمك (سم) — اختياري">
+              <NumberInput value={contractForm.thickness} onValueChange={(thickness) => setContractForm({ ...contractForm, thickness })} />
+            </Field>
+          </div>
           <Field label="الشروط (اختياري)">
             <Input value={contractForm.terms} onChange={(e) => setContractForm({ ...contractForm, terms: e.target.value })} placeholder="يُستخدم النص الافتراضي لو فاضي" />
           </Field>
@@ -684,23 +706,24 @@ export function CustomersPage() {
               <div>
                 <h3 className="mb-3 border-b border-slate-200 pb-2 text-sm font-extrabold text-brand-800">بيانات العميل</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {[
+                  {([
                     ['اسم العميل', contractView.customer.name],
                     ['كود العميل', contractView.customer.code],
-                    ['رقم الهاتف', contractView.customer.phone || '—'],
-                    ['البريد الإلكتروني', contractView.customer.email || '—'],
-                    ['العنوان', contractView.customer.address || '—'],
-                    ['قائمة السعر', contractView.customer.priceList === 'WHOLESALE' ? 'جملة' : 'قطاعي'],
+                    ['رقم الهاتف', contractView.customer.phone],
+                    ['البريد الإلكتروني', contractView.customer.email],
+                    ['العنوان', contractView.customer.address],
+                    ['العرض (سم)', contractView.width],
+                    ['السمك (سم)', contractView.thickness],
                     ['الرصيد الحالي', formatMoney(contractView.customer.balance)],
-                    ['حد الائتمان', formatMoney(contractView.customer.creditLimit || 0)],
+                    ['حد الائتمان', contractView.customer.creditLimit ? formatMoney(contractView.customer.creditLimit) : null],
                     ['حالة العميل', contractView.customer.isActive === false ? 'موقوف' : 'نشط'],
-                    ['ملاحظات العميل', contractView.customer.notes || '—'],
+                    ['ملاحظات العميل', contractView.customer.notes],
                     ['عنوان التعاقد', contractView.title],
-                    ['ملاحظات التعاقد', contractView.notes || '—'],
-                  ].map(([label, value]) => (
+                    ['ملاحظات التعاقد', contractView.notes],
+                  ] as [string, string | number | null | undefined][]).map(([label, value]) => (
                     <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                       <div className="text-[11px] font-bold text-slate-500">{label}</div>
-                      <div className="mt-1 min-h-[1.5rem] text-sm font-bold text-slate-900">{value}</div>
+                      <div className="mt-1 min-h-[1.5rem] text-sm font-bold text-slate-900"><FillIn value={value} /></div>
                     </div>
                   ))}
                 </div>

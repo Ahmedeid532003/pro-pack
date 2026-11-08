@@ -48,10 +48,17 @@ class ProductDto {
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() packUnit?: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
+  @IsOptional() @IsNumber() weight?: number | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => FieldValueDto)
   fieldValues?: FieldValueDto[];
   @IsOptional() @IsArray() @IsString({ each: true })
   warehouseIds?: string[];
+}
+
+class UnitsDto {
+  @IsArray() @IsString({ each: true }) units!: string[];
 }
 
 class UpdateProductDto {
@@ -68,6 +75,9 @@ class UpdateProductDto {
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() packUnit?: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
+  @IsOptional() @IsNumber() weight?: number | null;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => FieldValueDto)
   fieldValues?: FieldValueDto[];
@@ -141,6 +151,17 @@ export class ProductsController {
     return this.service.findByBarcode(code);
   }
 
+  @Get('units')
+  units() {
+    return this.service.listUnits();
+  }
+
+  @Post('units')
+  @Roles(Role.ADMIN, Role.WAREHOUSE)
+  saveUnits(@Body() dto: UnitsDto) {
+    return this.service.saveUnits(dto.units);
+  }
+
   @Get()
   async findAll(
     @Req() req: { user: { userId: string; role: string } },
@@ -149,9 +170,11 @@ export class ProductsController {
     @Query('pageSize') pageSize?: string,
     @Query('filter') filter?: string,
     @Query('warehouseId') warehouseId?: string,
+    @Query('width') width?: string,
+    @Query('thickness') thickness?: string,
   ) {
     const warehouseIds = await userWarehouseIds(this.prisma, req.user);
-    return this.service.findAll({ search, page, pageSize, filter, warehouseId, warehouseIds });
+    return this.service.findAll({ search, page, pageSize, filter, warehouseId, warehouseIds, width, thickness });
   }
 
   @Get(':id/image')

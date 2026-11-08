@@ -14,6 +14,8 @@ class LineDto {
   @IsNumber() unitPrice!: number;
   @IsOptional() @IsNumber() discount?: number;
   @IsOptional() @IsNumber() netWeight?: number;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
 }
 
 class TenderDto {

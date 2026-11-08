@@ -42,7 +42,7 @@ export class DocumentsService {
     notes?: string;
     discount?: number;
     taxRate?: number;
-    lines: { productId: string; description?: string; quantity: number; unitPrice: number; discount?: number }[];
+    lines: { productId: string; description?: string; quantity: number; unitPrice: number; discount?: number; width?: number | null; thickness?: number | null }[];
   }) {
     if (!data.lines?.length) throw new BadRequestException('أضف بنوداً');
     if (data.kind === DocKind.PURCHASE_ORDER && !data.supplierId) {
@@ -59,6 +59,8 @@ export class DocumentsService {
       unitPrice: l.unitPrice,
       discount: l.discount || 0,
       total: l.quantity * l.unitPrice - (l.discount || 0),
+      width: l.width ?? null,
+      thickness: l.thickness ?? null,
     }));
     const subtotal = lines.reduce((s, l) => s + l.total, 0);
     const discount = data.discount || 0;
@@ -107,6 +109,8 @@ export class DocumentsService {
       unitPrice: l.unitPrice,
       unitCost: l.unitPrice,
       discount: l.discount,
+      width: l.width,
+      thickness: l.thickness,
     }));
 
     const invoice = doc.kind === DocKind.PURCHASE_ORDER

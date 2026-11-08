@@ -50,9 +50,11 @@ export class StockController {
     @Req() req: { user: { userId: string; role: string } },
     @Query('warehouseId') warehouseId?: string,
     @Query('search') search?: string,
+    @Query('width') width?: string,
+    @Query('thickness') thickness?: string,
   ) {
     const warehouseIds = await userWarehouseIds(this.prisma, req.user);
-    return this.service.balances(warehouseId, search, warehouseIds);
+    return this.service.balances(warehouseId, search, warehouseIds, { width, thickness });
   }
 
   @Get('valuation')
@@ -60,9 +62,11 @@ export class StockController {
     @Req() req: { user: { userId: string; role: string } },
     @Query('warehouseId') warehouseId?: string,
     @Query('search') search?: string,
+    @Query('width') width?: string,
+    @Query('thickness') thickness?: string,
   ) {
     const warehouseIds = await userWarehouseIds(this.prisma, req.user);
-    return this.service.valuation(warehouseId, search, warehouseIds);
+    return this.service.valuation(warehouseId, search, warehouseIds, { width, thickness });
   }
 
   @Get('movements')

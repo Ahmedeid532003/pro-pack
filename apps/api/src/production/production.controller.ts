@@ -51,6 +51,9 @@ class MfgIssueDto {
 
 class CreateMfgJobDto {
   @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsString() customerName?: string;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
   @IsOptional() @IsString() notes?: string;
   @IsArray() @ValidateNested({ each: true }) @Type(() => MfgIssueDto)
   issues!: MfgIssueDto[];
@@ -82,15 +85,26 @@ class CompleteStageDto {
   materials?: MfgIssueDto[];
 }
 
+class ProdOrderLineDto {
+  @IsOptional() @IsString() productId?: string | null;
+  @IsString() description!: string;
+  @IsOptional() @IsNumber() width?: number | null;
+  @IsOptional() @IsNumber() thickness?: number | null;
+  @IsNumber() quantity!: number;
+  @IsOptional() @IsNumber() unitPrice?: number | null;
+}
+
 class CreateProdOrderDto {
   @IsString() customerId!: string;
-  @IsString() description!: string;
-  @IsNumber() quantity!: number;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsNumber() quantity?: number;
   @IsOptional() @IsNumber() unitPrice?: number;
   @IsOptional() @IsString() orderDate?: string;
   @IsOptional() @IsString() deliveryDate?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsString() productId?: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProdOrderLineDto)
+  lines?: ProdOrderLineDto[];
 }
 
 class UpdateProdOrderDto {
@@ -103,6 +117,8 @@ class UpdateProdOrderDto {
   @IsOptional() @IsString() notes?: string | null;
   @IsOptional() @IsString() productId?: string | null;
   @IsOptional() @IsEnum(CustomerProdOrderStatus) status?: CustomerProdOrderStatus;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ProdOrderLineDto)
+  lines?: ProdOrderLineDto[];
 }
 
 class TransferMfgDto {
