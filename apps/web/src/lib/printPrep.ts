@@ -1,13 +1,15 @@
-/** تجهيز الطباعة: فاتورة بنسختين في أول صفحة · كشف حساب في صفحة واحدة بالتصغير */
+/** تجهيز الطباعة: فاتورة بنسختين في أول صفحة · كشف حساب كامل بدون قص */
 export function installPrintPrep() {
   const MOUNT_ID = 'invoice-print-mount';
 
   const clearStatementScale = () => {
-    document.querySelectorAll<HTMLElement>('.statement-sheet').forEach((el) => {
+    document.querySelectorAll<HTMLElement>('.statement-sheet, .statement-fit-host').forEach((el) => {
       el.style.removeProperty('transform');
       el.style.removeProperty('transform-origin');
       el.style.removeProperty('width');
       el.style.removeProperty('height');
+      el.style.removeProperty('max-height');
+      el.style.removeProperty('overflow');
       el.removeAttribute('data-print-scale');
     });
   };
@@ -15,7 +17,6 @@ export function installPrintPrep() {
   const prep = () => {
     const dual = document.querySelector('.dual-print-root');
     if (dual) {
-      // انسخ الفاتورة لأول الـ body عشان تطلع في الصفحة الأولى (من غير صفحة فاضية)
       let mount = document.getElementById(MOUNT_ID);
       if (!mount) {
         mount = document.createElement('div');
@@ -25,7 +26,6 @@ export function installPrintPrep() {
       mount.innerHTML = '';
       const clone = dual.cloneNode(true) as HTMLElement;
       clone.classList.add('dual-print-root--mounted');
-      // أظهر النسخة المستنسخة حتى لو كانت print-only في الأصل
       clone.querySelectorAll('.print-only, .dual-print-clone').forEach((el) => {
         (el as HTMLElement).style.display = 'block';
         (el as HTMLElement).style.visibility = 'visible';
@@ -41,31 +41,22 @@ export function installPrintPrep() {
 
     const statement = document.querySelector<HTMLElement>('.statement-sheet');
     if (statement) {
-      const sheets = Array.from(document.querySelectorAll<HTMLElement>('.print-sheet'));
+      // إلغاء أي تصغير شاشة وفتح الحاويات عشان الطباعة تظهر كاملة
+      const sheets = Array.from(document.querySelectorAll<HTMLElement>('.print-sheet, .statement-fullscreen, .statement-fullscreen-body, .statement-fit-host'));
       for (const el of sheets) {
         el.style.maxHeight = 'none';
         el.style.height = 'auto';
         el.style.overflow = 'visible';
+        el.style.transform = 'none';
+        el.style.position = el.classList.contains('statement-fullscreen') ? 'static' : el.style.position;
       }
-
-      // قياس الارتفاع الطبيعي ثم تصغير لصفحة A4 واحدة
       statement.style.transform = 'none';
-      const naturalH = Math.max(statement.scrollHeight, statement.offsetHeight);
-      const naturalW = Math.max(statement.scrollWidth, statement.offsetWidth);
-      // هامش @page 5mm ×2 ≈ مساحة طباعة تقريبية لـ A4 عمودي
-      const pageH = Math.min(window.innerHeight, 1120);
-      const pageW = Math.min(window.innerWidth, 794);
-      const scale = Math.min(1, (pageH - 8) / Math.max(naturalH, 1), (pageW - 8) / Math.max(naturalW, 1));
-      const safe = Math.max(0.35, Math.min(1, scale));
-      statement.style.transformOrigin = 'top center';
-      statement.style.transform = `scale(${safe})`;
-      statement.setAttribute('data-print-scale', String(safe));
-      // عوّض العرض بعد scale عشان ما يحصلش قص أفقي
-      if (safe < 0.999) {
-        statement.style.width = `${100 / safe}%`;
-      }
+      statement.style.width = '100%';
+      statement.style.height = 'auto';
+      statement.style.overflow = 'visible';
 
-      document.documentElement.style.setProperty('--print-sheet-h', '100vh');
+      const h = Math.max(statement.scrollHeight, statement.offsetHeight, document.body.scrollHeight);
+      document.documentElement.style.setProperty('--print-sheet-h', `${Math.ceil(h + 64)}px`);
       document.body.classList.add('is-printing', 'printing-statement');
       return;
     }
@@ -87,8 +78,18 @@ export function installPrintPrep() {
   const cleanup = () => {
     document.getElementById(MOUNT_ID)?.remove();
     clearStatementScale();
+    document.querySelectorAll<HTMLElement>('.print-sheet, .statement-fullscreen, .statement-fullscreen-body, .statement-fit-host, .statement-sheet').forEach((el) => {
+      el.style.removeProperty('max-height');
+      el.style.removeProperty('height');
+      el.style.removeProperty('overflow');
+      el.style.removeProperty('transform');
+      el.style.removeProperty('width');
+      el.style.removeProperty('position');
+    });
     document.body.classList.remove('is-printing', 'printing-dual-invoice', 'printing-statement');
     document.documentElement.style.removeProperty('--print-sheet-h');
+    // إعادة ملاءمة الشاشة بعد الطباعة
+    window.dispatchEvent(new Event('resize'));
   };
 
   window.addEventListener('beforeprint', prep);

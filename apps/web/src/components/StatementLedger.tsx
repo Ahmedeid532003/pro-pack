@@ -163,14 +163,15 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
   return (
     <div ref={hostRef} className="statement-fit-host flex h-full min-h-0 flex-col overflow-hidden">
       <div ref={sheetRef} className="statement-sheet statement-sheet--light flex w-full flex-col gap-1.5">
-        <div className="no-print shrink-0">
+        {/* يظهر في الشاشة والطباعة: لوجو + اسم الطرف */}
+        <div className="statement-print-header shrink-0">
           <PrintHeader
             title={data.title}
             subtitle={`${data.partyName}${data.partyCode ? ` · ${data.partyCode}` : ''}`}
           />
         </div>
 
-        <div className="statement-print-summary shrink-0 rounded-xl border border-sky-200 bg-gradient-to-l from-sky-50 via-white to-emerald-50 px-2.5 py-2 no-print">
+        <div className="statement-print-summary shrink-0 rounded-xl border border-sky-200 bg-gradient-to-l from-sky-50 via-white to-emerald-50 px-2.5 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <BrandMark size="sm" />
