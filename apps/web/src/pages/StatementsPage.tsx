@@ -124,8 +124,8 @@ export function StatementsPage() {
         actions={<BrandMark size="md" />}
       />
 
-      <div className="mb-4 grid gap-4 xl:grid-cols-[320px_1fr]">
-        <Card className="h-fit space-y-3 no-print">
+      <div className="mb-4 grid gap-4 xl:grid-cols-[300px_1fr] xl:min-h-[calc(100vh-11rem)]">
+        <Card className="h-fit max-h-[calc(100vh-11rem)] space-y-3 overflow-y-auto no-print">
           <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
             {([
               ['customer', 'عميل'],
@@ -208,7 +208,7 @@ export function StatementsPage() {
           )}
         </Card>
 
-        <Card className={data && party ? 'print-sheet' : ''}>
+        <Card className={`min-h-[70vh] xl:min-h-0 xl:h-full ${data && party ? 'print-sheet flex flex-col overflow-hidden !p-3' : ''}`}>
           {!data || !party ? (
             <div className="grid place-items-center py-16">
               <BrandMark size="lg" className="mb-4" />
@@ -218,20 +218,22 @@ export function StatementsPage() {
               />
             </div>
           ) : (
-            <StatementLedger
-              data={{
-                title: kind === 'customer' ? `كشف حساب عميل` : `كشف حساب مورد`,
-                partyName: party.name,
-                partyCode: party.code,
-                partyKind: kind,
-                balance: data.balance,
-                meaning,
-                prepaid: data.prepaid,
-                totals: data.totals,
-                statement: data.statement,
-                fileName: `كشف-${kind === 'customer' ? 'عميل' : 'مورد'}-${party.code}.xlsx`,
-              }}
-            />
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <StatementLedger
+                data={{
+                  title: kind === 'customer' ? `كشف حساب عميل` : `كشف حساب مورد`,
+                  partyName: party.name,
+                  partyCode: party.code,
+                  partyKind: kind,
+                  balance: data.balance,
+                  meaning,
+                  prepaid: data.prepaid,
+                  totals: data.totals,
+                  statement: data.statement,
+                  fileName: `كشف-${kind === 'customer' ? 'عميل' : 'مورد'}-${party.code}.xlsx`,
+                }}
+              />
+            </div>
           )}
         </Card>
       </div>

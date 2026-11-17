@@ -517,12 +517,15 @@ export function Modal({
   title,
   children,
   wide,
+  xl,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   wide?: boolean;
+  /** نافذة عريضة جدًا لكشف الحساب — شبه ملء الشاشة */
+  xl?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -539,13 +542,15 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
+  const width = xl ? 'max-w-[min(98vw,1500px)]' : wide ? 'max-w-4xl' : 'max-w-lg';
+  const height = xl ? 'max-h-[96vh] h-[96vh]' : 'max-h-[90vh]';
   return (
-    <div className="modal-backdrop fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
+    <div className={`modal-backdrop fixed inset-0 z-50 grid place-items-center bg-slate-950/50 backdrop-blur-sm ${xl ? 'p-2' : 'p-4'}`}>
       <div
-        className={`print-sheet modal-panel flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 ${wide ? 'max-w-4xl' : 'max-w-lg'}`}
+        className={`print-sheet modal-panel flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 ${height} ${width}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="no-print flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+        <div className="no-print flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-6 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="h-6 w-1 shrink-0 rounded-full bg-gradient-to-b from-sky-400 to-brand-700" />
             <h2 className="truncate text-lg font-extrabold text-slate-900">{title}</h2>
@@ -554,7 +559,7 @@ export function Modal({
             <X size={18} />
           </button>
         </div>
-        <div className="modal-body min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className={`modal-body min-h-0 flex-1 ${xl ? 'overflow-hidden px-3 py-2' : 'overflow-y-auto px-6 py-5'}`}>{children}</div>
       </div>
     </div>
   );

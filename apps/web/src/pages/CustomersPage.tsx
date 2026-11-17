@@ -634,24 +634,26 @@ export function CustomersPage() {
         </div>
       </Modal>
 
-      <Modal open={stmtOpen} onClose={() => setStmtOpen(false)} title={`كشف حساب — ${statement?.customer.name || ''}`} wide>
+      <Modal open={stmtOpen} onClose={() => setStmtOpen(false)} title={`كشف حساب — ${statement?.customer.name || ''}`} xl>
         {statement && (
-          <div>
-            <StatementLedger
-              data={{
-                title: `كشف حساب عميل: ${statement.customer.name}`,
-                partyName: statement.customer.name,
-                partyCode: statement.customer.code,
-                partyKind: 'customer',
-                balance: statement.balance,
-                meaning: statement.meaning,
-                prepaid: statement.prepaid,
-                totals: statement.totals,
-                statement: statement.statement,
-                fileName: `كشف-${statement.customer.code}.xlsx`,
-              }}
-            />
-            <div className="mt-4 no-print">
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <StatementLedger
+                data={{
+                  title: `كشف حساب عميل: ${statement.customer.name}`,
+                  partyName: statement.customer.name,
+                  partyCode: statement.customer.code,
+                  partyKind: 'customer',
+                  balance: statement.balance,
+                  meaning: statement.meaning,
+                  prepaid: statement.prepaid,
+                  totals: statement.totals,
+                  statement: statement.statement,
+                  fileName: `كشف-${statement.customer.code}.xlsx`,
+                }}
+              />
+            </div>
+            <div className="mt-2 shrink-0 no-print max-h-28 overflow-y-auto border-t border-slate-100 pt-2">
               <NotesPanel entityType="customer" entityId={statement.customer.id} />
               <EntityWorkspace entityType="customer" entityId={statement.customer.id} />
             </div>

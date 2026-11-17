@@ -249,14 +249,41 @@ body {
     print-color-adjust: exact !important;
   }
 
-  /* كشف حساب — يظهر كامل على أكثر من صفحة */
+  /* كشف حساب — صفحة طباعة واحدة بالتصغير */
+  body.printing-statement {
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+  }
+  body.printing-statement .print-sheet,
+  body.printing-statement .print-sheet.modal-panel {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  body.printing-statement .modal-body {
+    overflow: hidden !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    padding: 0 !important;
+  }
+  body.printing-statement .statement-fit-host {
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
   .statement-sheet {
     color: #000 !important;
-    font-size: 11pt !important;
-    width: 100% !important;
+    font-size: 9pt !important;
     overflow: visible !important;
-    page-break-inside: auto !important;
-    break-inside: auto !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
   }
   .statement-sheet .statement-table-wrap {
     overflow: visible !important;
@@ -267,10 +294,10 @@ body {
     width: 100% !important;
     min-width: 0 !important;
     table-layout: fixed !important;
-    border: 2px solid #000 !important;
-    font-size: 10pt !important;
-    line-height: 1.35 !important;
-    page-break-inside: auto !important;
+    border: 1.5px solid #64748b !important;
+    font-size: 8pt !important;
+    line-height: 1.2 !important;
+    page-break-inside: avoid !important;
   }
   .statement-sheet .statement-table thead {
     display: table-header-group !important;
@@ -284,9 +311,9 @@ body {
   }
   .statement-sheet .statement-table th,
   .statement-sheet .statement-table td {
-    border: 1.5px solid #000 !important;
-    padding: 5px 6px !important;
-    color: #000 !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 2px 3px !important;
+    color: #0f172a !important;
     vertical-align: middle !important;
     word-wrap: break-word !important;
     overflow-wrap: anywhere !important;
@@ -295,7 +322,7 @@ body {
     background: #e0f2fe !important;
     color: #0f172a !important;
     font-weight: 900 !important;
-    font-size: 9.5pt !important;
+    font-size: 7.5pt !important;
   }
   .statement-sheet .statement-table thead th.col-lena {
     background: #fef3c7 !important;
@@ -320,7 +347,7 @@ body {
     background: #fff !important;
   }
   .statement-sheet .statement-table .cell-num {
-    font-size: 9.5pt !important;
+    font-size: 7.5pt !important;
     font-weight: 900 !important;
     font-variant-numeric: tabular-nums lining-nums !important;
     white-space: nowrap !important;
@@ -331,7 +358,7 @@ body {
     background: #e0f2fe !important;
     color: #0f172a !important;
     font-weight: 900 !important;
-    font-size: 10pt !important;
+    font-size: 8pt !important;
   }
   .statement-sheet .statement-table tfoot .cell-num {
     color: #0f172a !important;
@@ -430,6 +457,19 @@ body {
 .print-only,
 .print-header {
   display: none;
+}
+
+/* كشف الحساب: يملأ الحاوية الظاهرة في شاشة واحدة */
+.statement-fit-host {
+  width: 100%;
+}
+.statement-sheet--light .statement-table {
+  table-layout: fixed;
+}
+.statement-sheet--light .statement-table th,
+.statement-sheet--light .statement-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Row state is shown as a slim accent on the leading edge instead of tinting the whole row. */

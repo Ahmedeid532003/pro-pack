@@ -351,22 +351,24 @@ export function SuppliersPage() {
         </div>
       </Modal>
 
-      <Modal open={stmtOpen} onClose={() => setStmtOpen(false)} title={`كشف حساب — ${statement?.supplier.name || ''}`} wide>
+      <Modal open={stmtOpen} onClose={() => setStmtOpen(false)} title={`كشف حساب — ${statement?.supplier.name || ''}`} xl>
         {statement && (
-          <StatementLedger
-            data={{
-              title: `كشف حساب مورد: ${statement.supplier.name}`,
-              partyName: statement.supplier.name,
-              partyCode: statement.supplier.code,
-              partyKind: 'supplier',
-              balance: statement.balance,
-              meaning: statement.meaning,
-              prepaid: statement.prepaid,
-              totals: statement.totals,
-              statement: statement.statement,
-              fileName: `كشف-مورد-${statement.supplier.code}.xlsx`,
-            }}
-          />
+          <div className="h-full min-h-0 overflow-hidden">
+            <StatementLedger
+              data={{
+                title: `كشف حساب مورد: ${statement.supplier.name}`,
+                partyName: statement.supplier.name,
+                partyCode: statement.supplier.code,
+                partyKind: 'supplier',
+                balance: statement.balance,
+                meaning: statement.meaning,
+                prepaid: statement.prepaid,
+                totals: statement.totals,
+                statement: statement.statement,
+                fileName: `كشف-مورد-${statement.supplier.code}.xlsx`,
+              }}
+            />
+          </div>
         )}
       </Modal>
     </div>

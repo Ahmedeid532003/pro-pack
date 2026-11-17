@@ -1,6 +1,16 @@
-/** تجهيز الطباعة: فاتورة بنسختين في أول صفحة · كشف حساب متعدد الصفحات */
+/** تجهيز الطباعة: فاتورة بنسختين في أول صفحة · كشف حساب في صفحة واحدة بالتصغير */
 export function installPrintPrep() {
   const MOUNT_ID = 'invoice-print-mount';
+
+  const clearStatementScale = () => {
+    document.querySelectorAll<HTMLElement>('.statement-sheet').forEach((el) => {
+      el.style.removeProperty('transform');
+      el.style.removeProperty('transform-origin');
+      el.style.removeProperty('width');
+      el.style.removeProperty('height');
+      el.removeAttribute('data-print-scale');
+    });
+  };
 
   const prep = () => {
     const dual = document.querySelector('.dual-print-root');
@@ -27,6 +37,38 @@ export function installPrintPrep() {
     }
 
     document.getElementById(MOUNT_ID)?.remove();
+    clearStatementScale();
+
+    const statement = document.querySelector<HTMLElement>('.statement-sheet');
+    if (statement) {
+      const sheets = Array.from(document.querySelectorAll<HTMLElement>('.print-sheet'));
+      for (const el of sheets) {
+        el.style.maxHeight = 'none';
+        el.style.height = 'auto';
+        el.style.overflow = 'visible';
+      }
+
+      // قياس الارتفاع الطبيعي ثم تصغير لصفحة A4 واحدة
+      statement.style.transform = 'none';
+      const naturalH = Math.max(statement.scrollHeight, statement.offsetHeight);
+      const naturalW = Math.max(statement.scrollWidth, statement.offsetWidth);
+      // هامش @page 5mm ×2 ≈ مساحة طباعة تقريبية لـ A4 عمودي
+      const pageH = Math.min(window.innerHeight, 1120);
+      const pageW = Math.min(window.innerWidth, 794);
+      const scale = Math.min(1, (pageH - 8) / Math.max(naturalH, 1), (pageW - 8) / Math.max(naturalW, 1));
+      const safe = Math.max(0.35, Math.min(1, scale));
+      statement.style.transformOrigin = 'top center';
+      statement.style.transform = `scale(${safe})`;
+      statement.setAttribute('data-print-scale', String(safe));
+      // عوّض العرض بعد scale عشان ما يحصلش قص أفقي
+      if (safe < 0.999) {
+        statement.style.width = `${100 / safe}%`;
+      }
+
+      document.documentElement.style.setProperty('--print-sheet-h', '100vh');
+      document.body.classList.add('is-printing', 'printing-statement');
+      return;
+    }
 
     const sheets = Array.from(document.querySelectorAll<HTMLElement>('.print-sheet'));
     if (!sheets.length) return;
@@ -44,7 +86,8 @@ export function installPrintPrep() {
 
   const cleanup = () => {
     document.getElementById(MOUNT_ID)?.remove();
-    document.body.classList.remove('is-printing', 'printing-dual-invoice');
+    clearStatementScale();
+    document.body.classList.remove('is-printing', 'printing-dual-invoice', 'printing-statement');
     document.documentElement.style.removeProperty('--print-sheet-h');
   };
 
