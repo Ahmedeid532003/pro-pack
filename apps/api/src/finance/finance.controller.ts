@@ -38,6 +38,16 @@ class CheckDto {
   @IsOptional() @IsString() notes?: string;
 }
 
+class IncomeDto {
+  @IsString() categoryId!: string;
+  @IsOptional() @IsString() accountId?: string;
+  @IsOptional() @IsString() methodId?: string;
+  @IsNumber() amount!: number;
+  @IsOptional() @IsString() incomeDate?: string;
+  @IsOptional() @IsString() paymentMethod?: string;
+  @IsOptional() @IsString() notes?: string;
+}
+
 @Controller('finance')
 export class FinanceController {
   constructor(private service: FinanceService) {}
@@ -84,6 +94,28 @@ export class FinanceController {
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
   createExpense(@Body() dto: ExpenseDto) {
     return this.service.createExpense(dto);
+  }
+
+  @Get('income-categories')
+  incomeCategories() {
+    return this.service.listIncomeCategories();
+  }
+
+  @Post('income-categories')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  createIncomeCategory(@Body() body: { name: string }) {
+    return this.service.createIncomeCategory(body.name);
+  }
+
+  @Get('incomes')
+  incomes(@Query('page') page?: string, @Query('pageSize') pageSize?: string) {
+    return this.service.listIncomes({ page, pageSize });
+  }
+
+  @Post('incomes')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  createIncome(@Body() dto: IncomeDto) {
+    return this.service.createIncome(dto);
   }
 
   @Get('checks')

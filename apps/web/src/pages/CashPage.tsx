@@ -5,6 +5,7 @@ import {
 import { api, formatDate, formatMoney } from '../lib/api';
 import { dueTone } from '../lib/due';
 import { DueAmount } from '../components/DueAmount';
+import { useToast } from '../lib/feedback';
 import {
   Badge, Button, Card, CardHeader, Empty, Input, Label, Modal, NumberInput, PageHeader, Pager, PrintHeader, SearchBox, Select, StatCard, StatGrid, Table, Td, Th,
 } from '../components/ui';
@@ -45,7 +46,14 @@ type Payment = {
   purchaseInvoice?: { number: string } | null;
 };
 
-type Tab = 'overview' | 'receipts' | 'payments' | 'movements';
+type CashTransfer = {
+  id: string; number: string; amount: number; note?: string | null; createdAt: string;
+  fromAccount: { id: string; name: string; code: string };
+  toAccount: { id: string; name: string; code: string };
+  createdBy?: { fullName: string } | null;
+};
+
+type Tab = 'overview' | 'receipts' | 'payments' | 'transfers' | 'movements';
 
 function oldestOpen(rows: OpenInvoice[]) {
   const open = rows.filter((row) => row.remaining > 0.009);
@@ -62,10 +70,12 @@ function dueBox(rows: OpenInvoice[]) {
 }
 
 export function CashPage() {
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>('overview');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [methods, setMethods] = useState<PayMethod[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
+  const [transfers, setTransfers] = useState<CashTransfer[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [customers, setCustomers] = useState<Party[]>([]);
@@ -75,6 +85,7 @@ export function CashPage() {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [accOpen, setAccOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   const [txForm, setTxForm] = useState({
     accountId: '', direction: 'IN' as 'IN' | 'OUT', amount: '' as number | '', description: '',
@@ -91,22 +102,26 @@ export function CashPage() {
     referenceNo: '', note: '',
   });
   const [accForm, setAccForm] = useState({ code: '', name: '', balance: '' as number | '', kind: 'IMMEDIATE', accountType: 'CASH' });
+  const [transferForm, setTransferForm] = useState({
+    fromAccountId: '', toAccountId: '', amount: '' as number | '', note: '',
+  });
 
   const [customerSummary, setCustomerSummary] = useState<{ balance: number; openInvoices: OpenInvoice[] } | null>(null);
   const [supplierSummary, setSupplierSummary] = useState<{ balance: number; openInvoices: OpenInvoice[] } | null>(null);
   const [search, setSearch] = useState('');
   const [listPage, setListPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [totals, setTotals] = useState({ receipts: 0, payments: 0, movements: 0 });
-  const [amounts, setAmounts] = useState({ receipts: 0, payments: 0 });
+  const [totals, setTotals] = useState({ receipts: 0, payments: 0, movements: 0, transfers: 0 });
+  const [amounts, setAmounts] = useState({ receipts: 0, payments: 0, transfers: 0 });
 
   async function load() {
     const params = new URLSearchParams({ page: String(listPage), pageSize: String(pageSize) });
     if (search.trim()) params.set('q', search.trim());
-    const [a, m, t, c, s, r, p] = await Promise.all([
+    const [a, m, t, tr, c, s, r, p] = await Promise.all([
       api<Account[]>('/cash/accounts'),
       api<PayMethod[]>('/cash/methods'),
       api<{ items: Tx[]; total: number }>(`/cash/transactions?${params}`),
+      api<{ items: CashTransfer[]; total: number; amount: number }>(`/cash/transfers?${params}`),
       api<Party[]>('/customers'),
       api<Party[]>('/suppliers'),
       api<{ items: Receipt[]; total: number; amount: number }>(`/cash/receipts?${params}`),
@@ -115,12 +130,13 @@ export function CashPage() {
     setAccounts(a);
     setMethods(m);
     setTxs(t.items);
+    setTransfers(tr.items);
     setCustomers(c);
     setSuppliers(s);
     setReceipts(r.items);
     setPayments(p.items);
-    setTotals({ receipts: r.total, payments: p.total, movements: t.total });
-    setAmounts({ receipts: r.amount, payments: p.amount });
+    setTotals({ receipts: r.total, payments: p.total, movements: t.total, transfers: tr.total });
+    setAmounts({ receipts: r.amount, payments: p.amount, transfers: tr.amount });
   }
 
   useEffect(() => { setListPage(1); }, [search, pageSize]);
@@ -221,16 +237,55 @@ export function CashPage() {
   }
 
   async function saveAccount() {
-    await api('/cash/methods', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...accForm,
-        balance: accForm.balance === '' ? 0 : accForm.balance,
-      }),
-    });
-    setAccOpen(false);
-    setAccForm({ code: '', name: '', balance: '', kind: 'IMMEDIATE', accountType: 'CASH' });
-    load();
+    try {
+      await api('/cash/methods', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...accForm,
+          balance: accForm.balance === '' ? 0 : accForm.balance,
+        }),
+      });
+      setAccOpen(false);
+      setAccForm({ code: '', name: '', balance: '', kind: 'IMMEDIATE', accountType: 'CASH' });
+      toast.success('تمت إضافة الخزنة / طريقة الدفع');
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر إضافة طريقة الدفع');
+    }
+  }
+
+  async function saveTransfer() {
+    if (!transferForm.fromAccountId || !transferForm.toAccountId) {
+      toast.error('اختر من وإلى');
+      return;
+    }
+    if (transferForm.fromAccountId === transferForm.toAccountId) {
+      toast.error('اختر حسابين مختلفين');
+      return;
+    }
+    const amount = transferForm.amount === '' ? 0 : transferForm.amount;
+    if (amount <= 0) {
+      toast.error('أدخل مبلغًا أكبر من صفر');
+      return;
+    }
+    try {
+      await api('/cash/transfers', {
+        method: 'POST',
+        body: JSON.stringify({
+          fromAccountId: transferForm.fromAccountId,
+          toAccountId: transferForm.toAccountId,
+          amount,
+          note: transferForm.note.trim() || undefined,
+        }),
+      });
+      setTransferOpen(false);
+      setTransferForm({ fromAccountId: '', toAccountId: '', amount: '', note: '' });
+      setTab('transfers');
+      toast.success('تم التحويل بين الحسابات');
+      load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تنفيذ التحويل');
+    }
   }
 
   const total = accounts.reduce((s, a) => s + a.balance, 0);
@@ -251,6 +306,7 @@ export function CashPage() {
     { id: 'overview', label: 'الحسابات', count: accounts.length },
     { id: 'receipts', label: 'التحصيلات', count: receipts.length },
     { id: 'payments', label: 'السدادات', count: payments.length },
+    { id: 'transfers', label: 'التحويلات', count: transfers.length },
     { id: 'movements', label: 'أذون الصرف/الاستلام', count: txs.length },
   ];
 
@@ -258,11 +314,12 @@ export function CashPage() {
     <div>
       <PageHeader
         title="الخزنة"
-        subtitle="تحصيل عملاء · سداد موردين · إذن استلام / إذن صرف للكاش"
+        subtitle="خزائن وطرق دفع · تحويل بين الحسابات · تحصيل و سداد"
         actions={
           <>
             <SearchBox value={search} onChange={setSearch} placeholder="بحث في الخزنة..." />
-            <Button variant="secondary" onClick={() => setAccOpen(true)}><Plus size={16} /> طريقة دفع</Button>
+            <Button variant="secondary" onClick={() => setAccOpen(true)}><Plus size={16} /> خزنة / طريقة دفع</Button>
+            <Button variant="secondary" onClick={() => setTransferOpen(true)}><ArrowLeftRight size={16} /> تحويل</Button>
             <Button variant="secondary" onClick={() => setReceiptOpen(true)}><ArrowDownLeft size={16} /> تحصيل عميل</Button>
             <Button variant="secondary" onClick={() => setPaymentOpen(true)}><ArrowUpRight size={16} /> سداد مورد</Button>
             <Button
@@ -332,7 +389,7 @@ export function CashPage() {
           ))}
         </div>
         <Card className="mt-4">
-          <CardHeader title="طرق الدفع" subtitle="خزنة رئيسية · انستا باي · محفظة · حساب بنكي" icon={Wallet} />
+          <CardHeader title="طرق الدفع والخزائن" subtitle="أضف أورنج كاش أو أي محفظة/حساب · ثم حوّل بينها" icon={Wallet} />
           <div className="flex flex-wrap gap-2 p-4">
             {payMethods.map((m) => (
               <Badge key={m.id} tone="sky">{m.name}{m.cashAccount ? ` · ${formatMoney(m.cashAccount.balance)}` : ''}</Badge>
@@ -340,6 +397,40 @@ export function CashPage() {
           </div>
         </Card>
         </>
+      )}
+
+      {tab === 'transfers' && (
+        <Card>
+          <CardHeader
+            title="تحويلات بين الخزائن / الحسابات"
+            subtitle={`${totals.transfers} تحويل · ${formatMoney(amounts.transfers)}`}
+            icon={ArrowLeftRight}
+            actions={<Button onClick={() => setTransferOpen(true)}><Plus size={14} /> تحويل جديد</Button>}
+          />
+          {transfers.length === 0 ? <Empty text="لا توجد تحويلات" hint="حوّل من خزنة إلى أخرى مثل أورنج كاش ← خزنة رئيسية" /> : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th>الرقم</Th><Th>التاريخ</Th><Th>من</Th><Th>إلى</Th><Th>المبلغ</Th><Th>ملاحظة</Th><Th>بواسطة</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.map((row) => (
+                  <tr key={row.id}>
+                    <Td><span className="font-mono text-xs font-bold text-brand-700" dir="ltr">{row.number}</span></Td>
+                    <Td className="whitespace-nowrap text-slate-500">{formatDate(row.createdAt)}</Td>
+                    <Td className="font-semibold text-rose-700">{row.fromAccount.name}</Td>
+                    <Td className="font-semibold text-emerald-700">{row.toAccount.name}</Td>
+                    <Td className="whitespace-nowrap font-extrabold text-slate-900">{formatMoney(row.amount)}</Td>
+                    <Td className="max-w-xs truncate text-muted">{row.note || '—'}</Td>
+                    <Td className="text-slate-600">{row.createdBy?.fullName || '—'}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+          <Pager page={listPage} pages={pageCount(totals.transfers)} total={totals.transfers} from={pageFrom(totals.transfers)} to={pageTo(totals.transfers)} pageSize={pageSize} onPageSize={setPageSize} onPage={setListPage} />
+        </Card>
       )}
 
       {tab === 'receipts' && (
@@ -727,21 +818,56 @@ export function CashPage() {
         )}
       </Modal>
 
-      <Modal open={accOpen} onClose={() => setAccOpen(false)} title="طريقة دفع جديدة">
+      <Modal open={transferOpen} onClose={() => setTransferOpen(false)} title="تحويل بين خزائن / حسابات">
+        <div className="space-y-3">
+          <p className="rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            اختر الحساب <b>من</b> و <b>إلى</b> والمبلغ — الرصيد يتحدث فورًا ويُسجَّل في تفاصيل التحويلات.
+          </p>
+          <div>
+            <Label>من</Label>
+            <Select value={transferForm.fromAccountId} onChange={(e) => setTransferForm({ ...transferForm, fromAccountId: e.target.value })}>
+              <option value="">اختر المصدر</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name} · {formatMoney(a.balance)}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>إلى</Label>
+            <Select value={transferForm.toAccountId} onChange={(e) => setTransferForm({ ...transferForm, toAccountId: e.target.value })}>
+              <option value="">اختر الوجهة</option>
+              {accounts.filter((a) => a.id !== transferForm.fromAccountId).map((a) => (
+                <option key={a.id} value={a.id}>{a.name} · {formatMoney(a.balance)}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <Label>المبلغ</Label>
+            <NumberInput value={transferForm.amount} onValueChange={(v) => setTransferForm({ ...transferForm, amount: v })} />
+          </div>
+          <div>
+            <Label>ملاحظة / سبب التحويل</Label>
+            <Input value={transferForm.note} onChange={(e) => setTransferForm({ ...transferForm, note: e.target.value })} placeholder="اختياري" />
+          </div>
+          <Button className="w-full" onClick={saveTransfer}>تنفيذ التحويل</Button>
+        </div>
+      </Modal>
+
+      <Modal open={accOpen} onClose={() => setAccOpen(false)} title="خزنة / طريقة دفع جديدة">
         <div className="space-y-3">
           <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            المعتمد في السيستم: خزنة رئيسية · انستا باي · محفظة · حساب بنكي — الإضافة الاختيارية لنفس الأنواع فقط.
+            أضف خزنة أو محفظة (مثل أورنج كاش / فودافون كاش) ثم حوّل منها وإليها بحرية.
           </p>
           <div>
             <Label>نوع الحساب</Label>
             <Select value={accForm.accountType} onChange={(e) => setAccForm({ ...accForm, accountType: e.target.value, kind: 'IMMEDIATE' })}>
-              <option value="CASH">خزنة رئيسية</option>
-              <option value="WALLET">انستا باي / محفظة</option>
+              <option value="CASH">خزنة نقدية</option>
+              <option value="WALLET">محفظة إلكترونية</option>
               <option value="BANK">حساب بنكي</option>
             </Select>
           </div>
-          <div><Label>الكود</Label><Input value={accForm.code} onChange={(e) => setAccForm({ ...accForm, code: e.target.value })} /></div>
-          <div><Label>الاسم</Label><Input value={accForm.name} onChange={(e) => setAccForm({ ...accForm, name: e.target.value })} /></div>
+          <div><Label>الكود</Label><Input value={accForm.code} onChange={(e) => setAccForm({ ...accForm, code: e.target.value })} placeholder="ORANGE" dir="ltr" /></div>
+          <div><Label>الاسم</Label><Input value={accForm.name} onChange={(e) => setAccForm({ ...accForm, name: e.target.value })} placeholder="أورنج كاش" /></div>
           <div>
             <Label>رصيد افتتاحي</Label>
             <NumberInput value={accForm.balance} onValueChange={(v) => setAccForm({ ...accForm, balance: v })} />

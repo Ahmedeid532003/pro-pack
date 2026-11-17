@@ -292,35 +292,35 @@ body {
     overflow-wrap: anywhere !important;
   }
   .statement-sheet .statement-table thead th {
-    background: #0f1c2e !important;
-    color: #fff !important;
+    background: #e0f2fe !important;
+    color: #0f172a !important;
     font-weight: 900 !important;
-    font-size: 10pt !important;
+    font-size: 9.5pt !important;
   }
   .statement-sheet .statement-table thead th.col-lena {
-    background: #f59e0b !important;
-    color: #000 !important;
+    background: #fef3c7 !important;
+    color: #78350f !important;
   }
   .statement-sheet .statement-table thead th.col-alena {
-    background: #fecaca !important;
-    color: #7f1d1d !important;
+    background: #ffe4e6 !important;
+    color: #9f1239 !important;
   }
   .statement-sheet .statement-table thead th.col-paid {
-    background: #86efac !important;
-    color: #14532d !important;
+    background: #d1fae5 !important;
+    color: #065f46 !important;
   }
   .statement-sheet .statement-table thead th.col-bal {
-    background: #cbd5e1 !important;
-    color: #000 !important;
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
   }
   .statement-sheet .statement-table tbody tr:nth-child(even) td {
-    background: #eef2f7 !important;
+    background: #f8fafc !important;
   }
   .statement-sheet .statement-table tbody tr:nth-child(odd) td {
     background: #fff !important;
   }
   .statement-sheet .statement-table .cell-num {
-    font-size: 10.5pt !important;
+    font-size: 9.5pt !important;
     font-weight: 900 !important;
     font-variant-numeric: tabular-nums lining-nums !important;
     white-space: nowrap !important;
@@ -328,15 +328,15 @@ body {
     text-align: left !important;
   }
   .statement-sheet .statement-table tfoot td {
-    background: #0f1c2e !important;
-    color: #fff !important;
+    background: #e0f2fe !important;
+    color: #0f172a !important;
     font-weight: 900 !important;
-    font-size: 11pt !important;
+    font-size: 10pt !important;
   }
   .statement-sheet .statement-table tfoot .cell-num {
-    color: #000 !important;
+    color: #0f172a !important;
     background: #fff !important;
-    border: 1.5px solid #000 !important;
+    border: 1.5px solid #94a3b8 !important;
   }
   /* كشف الحساب: الجدول فقط عند الطباعة — بدون بوكسات ملخص */
   .statement-sheet .statement-print-summary,

@@ -107,7 +107,7 @@ export class ReportsService {
     const expenseDate = this.dayRange(from, to);
     const posted = { in: [InvoiceStatus.CONFIRMED, InvoiceStatus.PARTIAL, InvoiceStatus.PAID] as InvoiceStatus[] };
 
-    const [saleInvoices, returnRows, expenses] = await Promise.all([
+    const [saleInvoices, returnRows, expenses, incomes] = await Promise.all([
       this.prisma.salesInvoice.findMany({
         where: {
           status: posted,
@@ -139,11 +139,18 @@ export class ReportsService {
             include: { category: true, account: true },
             orderBy: { expenseDate: 'asc' },
           }),
+      warehouseIds?.length
+        ? Promise.resolve([])
+        : this.prisma.income.findMany({
+            where: expenseDate ? { incomeDate: expenseDate } : undefined,
+            include: { category: true, account: true },
+            orderBy: { incomeDate: 'asc' },
+          }),
     ]);
 
     type ProfitLine = {
       id: string;
-      kind: 'REVENUE' | 'RETURN' | 'COGS' | 'COGS_RETURN' | 'EXPENSE' | 'DISCOUNT' | 'TAX';
+      kind: 'REVENUE' | 'RETURN' | 'COGS' | 'COGS_RETURN' | 'EXPENSE' | 'INCOME' | 'DISCOUNT' | 'TAX';
       date: string;
       reference: string;
       party: string;
@@ -158,6 +165,7 @@ export class ReportsService {
     let revenue = 0;
     let cogs = 0;
     let expenseTotal = 0;
+    let incomeTotal = 0;
 
     for (const inv of saleInvoices) {
       const date = inv.invoiceDate.toISOString();
@@ -276,13 +284,30 @@ export class ReportsService {
       });
     }
 
+    for (const income of incomes) {
+      incomeTotal += income.amount;
+      lines.push({
+        id: `inc-${income.id}`,
+        kind: 'INCOME',
+        date: income.incomeDate.toISOString(),
+        reference: income.account.name,
+        party: income.category.name,
+        description: income.notes?.trim() || income.category.name,
+        quantity: null,
+        unitAmount: null,
+        amount: Math.round(income.amount * 100) / 100,
+        side: 'IN',
+      });
+    }
+
     lines.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind) || a.reference.localeCompare(b.reference));
 
     revenue = Math.round(revenue * 100) / 100;
     cogs = Math.round(cogs * 100) / 100;
     expenseTotal = Math.round(expenseTotal * 100) / 100;
+    incomeTotal = Math.round(incomeTotal * 100) / 100;
     const grossProfit = Math.round((revenue - cogs) * 100) / 100;
-    const netProfit = Math.round((revenue - cogs - expenseTotal) * 100) / 100;
+    const netProfit = Math.round((revenue - cogs - expenseTotal + incomeTotal) * 100) / 100;
 
     return {
       salesTotal: sales.total,
@@ -293,6 +318,7 @@ export class ReportsService {
       revenue,
       cogs,
       expenses: expenseTotal,
+      incomes: incomeTotal,
       operatingProfit: grossProfit,
       netProfit,
       lines,
@@ -301,6 +327,7 @@ export class ReportsService {
         returns: lines.filter((row) => row.kind === 'RETURN').length,
         cogs: lines.filter((row) => row.kind === 'COGS').length,
         expenses: lines.filter((row) => row.kind === 'EXPENSE').length,
+        incomes: lines.filter((row) => row.kind === 'INCOME').length,
         all: lines.length,
       },
     };
@@ -477,6 +504,202 @@ export class ReportsService {
     const totalIn = transactions.filter((t) => t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
     const totalOut = transactions.filter((t) => t.direction === 'OUT').reduce((s, t) => s + t.amount, 0);
     return { transactions, accounts, totalIn, totalOut, net: totalIn - totalOut };
+  }
+
+  async customersReport() {
+    const customers = await this.prisma.customer.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true, code: true, name: true, phone: true, balance: true,
+        _count: { select: { salesInvoices: true, receipts: true } },
+      },
+    });
+    const due = customers.filter((c) => c.balance > 0.009);
+    const prepaid = customers.filter((c) => c.balance < -0.009);
+    return {
+      customers,
+      totalDue: due.reduce((s, c) => s + c.balance, 0),
+      totalPrepaid: prepaid.reduce((s, c) => s + Math.abs(c.balance), 0),
+      dueCount: due.length,
+      prepaidCount: prepaid.length,
+      count: customers.length,
+    };
+  }
+
+  async suppliersReport() {
+    const suppliers = await this.prisma.supplier.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true, code: true, name: true, phone: true, balance: true,
+        _count: { select: { purchaseInvoices: true, payments: true } },
+      },
+    });
+    const due = suppliers.filter((s) => s.balance > 0.009);
+    const prepaid = suppliers.filter((s) => s.balance < -0.009);
+    return {
+      suppliers,
+      totalDue: due.reduce((s, c) => s + c.balance, 0),
+      totalPrepaid: prepaid.reduce((s, c) => s + Math.abs(c.balance), 0),
+      dueCount: due.length,
+      prepaidCount: prepaid.length,
+      count: suppliers.length,
+    };
+  }
+
+  async financeReport(from?: string, to?: string) {
+    const range = this.dayRange(from, to);
+    const [expenses, incomes, checks, transfers] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: range ? { expenseDate: range } : undefined,
+        include: { category: true, account: true },
+        orderBy: { expenseDate: 'desc' },
+      }),
+      this.prisma.income.findMany({
+        where: range ? { incomeDate: range } : undefined,
+        include: { category: true, account: true },
+        orderBy: { incomeDate: 'desc' },
+      }),
+      this.prisma.bankCheck.findMany({
+        where: range ? { dueDate: range } : undefined,
+        include: { customer: true, supplier: true, account: true },
+        orderBy: { dueDate: 'asc' },
+      }),
+      this.prisma.cashTransfer.findMany({
+        where: range ? { createdAt: range } : undefined,
+        include: { fromAccount: true, toAccount: true, createdBy: { select: { fullName: true } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const expenseTotal = expenses.reduce((s, e) => s + e.amount, 0);
+    const incomeTotal = incomes.reduce((s, e) => s + e.amount, 0);
+    const byExpense = new Map<string, number>();
+    const byIncome = new Map<string, number>();
+    for (const row of expenses) byExpense.set(row.category.name, (byExpense.get(row.category.name) || 0) + row.amount);
+    for (const row of incomes) byIncome.set(row.category.name, (byIncome.get(row.category.name) || 0) + row.amount);
+    return {
+      expenses,
+      incomes,
+      checks,
+      transfers,
+      expenseTotal,
+      incomeTotal,
+      net: incomeTotal - expenseTotal,
+      transferTotal: transfers.reduce((s, t) => s + t.amount, 0),
+      byExpenseCategory: [...byExpense.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
+      byIncomeCategory: [...byIncome.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
+      pendingChecks: checks.filter((c) => c.status === 'PENDING').length,
+    };
+  }
+
+  async hrReport(from?: string, to?: string) {
+    const range = this.dayRange(from, to);
+    const [employees, attendance, leaves, movements, payroll] = await Promise.all([
+      this.prisma.hrEmployee.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' },
+        select: {
+          id: true, code: true, name: true, salary: true, commissionPercent: true, phone: true, hireDate: true,
+          _count: { select: { attendance: true, leaves: true, movements: true } },
+        },
+      }),
+      this.prisma.hrAttendance.findMany({
+        where: range ? { workDate: range } : undefined,
+        include: { employee: { select: { code: true, name: true } } },
+        orderBy: { workDate: 'desc' },
+        take: 500,
+      }),
+      this.prisma.hrLeave.findMany({
+        where: range ? { OR: [{ fromDate: range }, { toDate: range }] } : undefined,
+        include: { employee: { select: { code: true, name: true } } },
+        orderBy: { fromDate: 'desc' },
+        take: 200,
+      }),
+      this.prisma.hrMovement.findMany({
+        where: range ? { movementDate: range } : undefined,
+        include: { employee: { select: { code: true, name: true } } },
+        orderBy: { movementDate: 'desc' },
+        take: 300,
+      }),
+      this.prisma.hrPayrollRun.findMany({
+        where: range ? { createdAt: range } : undefined,
+        include: {
+          lines: { include: { employee: { select: { code: true, name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    ]);
+    const salaryTotal = employees.reduce((s, e) => s + e.salary, 0);
+    const overtimeMinutes = attendance.reduce((s, a) => s + (a.overtimeApproved ? a.overtimeMinutes : 0), 0);
+    const movementTotal = movements.reduce((s, m) => s + m.amount, 0);
+    return {
+      employees,
+      attendance,
+      leaves,
+      movements,
+      payroll,
+      employeeCount: employees.length,
+      salaryTotal,
+      overtimeMinutes,
+      movementTotal,
+      leaveCount: leaves.length,
+      attendanceCount: attendance.length,
+    };
+  }
+
+  async productionReport(from?: string, to?: string, warehouseIds?: string[]) {
+    const range = this.dayRange(from, to);
+    const whFilter = warehouseIds?.length
+      ? {
+          OR: [
+            { rawWarehouseId: { in: warehouseIds } },
+            { finishedWarehouseId: { in: warehouseIds } },
+          ],
+        }
+      : {};
+    const [orders, jobs] = await Promise.all([
+      this.prisma.productionOrder.findMany({
+        where: {
+          ...(range ? { createdAt: range } : {}),
+          ...whFilter,
+        },
+        include: {
+          product: { select: { sku: true, name: true } },
+          rawWarehouse: { select: { name: true, code: true } },
+          finishedWarehouse: { select: { name: true, code: true } },
+          materials: { include: { product: { select: { sku: true, name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+      }),
+      this.prisma.mfgJob.findMany({
+        where: {
+          ...(range ? { createdAt: range } : {}),
+          ...whFilter,
+        },
+        include: {
+          finishedProduct: { select: { sku: true, name: true } },
+          rawWarehouse: { select: { name: true, code: true } },
+          finishedWarehouse: { select: { name: true, code: true } },
+          stages: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 300,
+      }),
+    ]);
+    const orderCost = orders.reduce((s, o) => s + (o.totalCost || 0), 0);
+    const jobCost = jobs.reduce((s, j) => s + (j.totalCost || 0), 0);
+    return {
+      orders,
+      jobs,
+      orderCount: orders.length,
+      jobCount: jobs.length,
+      orderCost,
+      jobCost,
+      totalCost: orderCost + jobCost,
+    };
   }
 
   async exportInventoryExcel(warehouseIds?: string[]) {

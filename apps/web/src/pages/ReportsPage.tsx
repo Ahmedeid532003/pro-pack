@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDownLeft, ArrowUpRight, Boxes, ClipboardCheck, Coins, Download, FileSpreadsheet, Package, PackageX, Percent, Printer, ShoppingCart,
-  TrendingDown, TrendingUp, Truck, Wallet,
+  AlertTriangle, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Boxes, ClipboardCheck, Coins, Download, Factory, FileSpreadsheet, Package, PackageX, Percent, Printer, ShoppingCart,
+  TrendingDown, TrendingUp, Truck, Users, Wallet,
 } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { api, formatDate, formatMoney, getApiBase } from '../lib/api';
@@ -13,7 +13,7 @@ import {
 
 type ProfitLine = {
   id: string;
-  kind: 'REVENUE' | 'RETURN' | 'COGS' | 'COGS_RETURN' | 'EXPENSE' | 'DISCOUNT' | 'TAX';
+  kind: 'REVENUE' | 'RETURN' | 'COGS' | 'COGS_RETURN' | 'EXPENSE' | 'INCOME' | 'DISCOUNT' | 'TAX';
   date: string;
   reference: string;
   party: string;
@@ -32,12 +32,14 @@ const PROFIT_KIND: Record<ProfitLine['kind'], { label: string; tone: 'emerald' |
   COGS: { label: 'تكلفة بضاعة', tone: 'sky' },
   COGS_RETURN: { label: 'استرداد تكلفة', tone: 'sky' },
   EXPENSE: { label: 'مصروف', tone: 'rose' },
+  INCOME: { label: 'وارد مالي', tone: 'emerald' },
 };
 
 function ProfitView({
   revenue,
   cogs,
   expenses,
+  incomes = 0,
   gross,
   net,
   lines,
@@ -45,12 +47,13 @@ function ProfitView({
   revenue: number;
   cogs: number;
   expenses: number;
+  incomes?: number;
   gross: number;
   net: number;
   invoiceDiff?: number;
   lines: ProfitLine[];
 }) {
-  const [filter, setFilter] = useState<'all' | 'IN' | 'OUT' | 'REVENUE' | 'COGS' | 'EXPENSE'>('all');
+  const [filter, setFilter] = useState<'all' | 'IN' | 'OUT' | 'REVENUE' | 'COGS' | 'EXPENSE' | 'INCOME'>('all');
   const margin = revenue > 0 ? (net / revenue) * 100 : 0;
   const cogsPct = revenue > 0 ? Math.min(100, Math.max(0, (cogs / revenue) * 100)) : 0;
   const expensePct = revenue > 0 ? Math.min(100, Math.max(0, (expenses / revenue) * 100)) : 0;
@@ -61,6 +64,7 @@ function ProfitView({
     if (filter === 'OUT') return row.side === 'OUT';
     if (filter === 'REVENUE') return row.kind === 'REVENUE' || row.kind === 'RETURN' || row.kind === 'TAX' || row.kind === 'DISCOUNT';
     if (filter === 'COGS') return row.kind === 'COGS' || row.kind === 'COGS_RETURN';
+    if (filter === 'INCOME') return row.kind === 'INCOME';
     return row.kind === 'EXPENSE';
   });
 
@@ -76,7 +80,8 @@ function ProfitView({
               {net >= 0 ? '+' : ''}{formatMoney(net)}
             </div>
             <div className="mt-3 max-w-xl text-sm font-semibold leading-6 text-white/90">
-              إيراد البيع {formatMoney(revenue)} − تكلفة البضاعة {formatMoney(cogs)} − المصروفات {formatMoney(expenses)}
+              إيراد البيع {formatMoney(revenue)} − تكلفة {formatMoney(cogs)} − مصروفات {formatMoney(expenses)}
+              {incomes > 0.009 ? ` + واردات ${formatMoney(incomes)}` : ''}
             </div>
             <div className="mt-1 text-xs text-white/70">
               مجمل الربح {formatMoney(gross)} · هامش {(Number.isFinite(margin) ? margin : 0).toFixed(1)}%
@@ -95,6 +100,7 @@ function ProfitView({
         <StatCard label="صافي إيراد البيع" value={formatMoney(revenue)} hint="بعد المرتجعات والخصم والضريبة" icon={ShoppingCart} tone="emerald" />
         <StatCard label="تكلفة البضاعة المباعة" value={formatMoney(cogs)} hint="من تكلفة الصنف وقت البيع" icon={Coins} tone="sky" />
         <StatCard label="المصروفات" value={formatMoney(expenses)} hint="مصروفات الفترة" icon={Wallet} tone="rose" />
+        <StatCard label="الواردات" value={formatMoney(incomes)} hint="فلوس داخلة غير المبيعات" icon={ArrowDownLeft} tone="emerald" />
         <StatCard label="صافي الربح" value={<span className={net >= 0 ? 'text-emerald-700' : 'text-rose-600'}>{formatMoney(net)}</span>} hint={`مجمل ${formatMoney(gross)}`} icon={TrendingUp} tone={net >= 0 ? 'emerald' : 'rose'} />
       </StatGrid>
       <Card>
@@ -124,6 +130,7 @@ function ProfitView({
                 ['REVENUE', 'إيراد ومرتجع'],
                 ['COGS', 'تكلفة'],
                 ['EXPENSE', 'مصروف'],
+                ['INCOME', 'وارد'],
               ] as const).map(([key, label]) => (
                 <button
                   key={key}
@@ -207,6 +214,7 @@ type Profit = {
   revenue?: number;
   cogs?: number;
   expenses?: number;
+  incomes?: number;
   operatingProfit?: number;
   netProfit?: number;
   lines?: ProfitLine[];
@@ -261,7 +269,7 @@ type ProductInsights = {
   unsoldValue: number;
 };
 
-type ReportTab = 'inventory' | 'count' | 'sales' | 'purchases' | 'profit' | 'cash' | 'products';
+type ReportTab = 'inventory' | 'count' | 'sales' | 'purchases' | 'profit' | 'cash' | 'products' | 'customers' | 'suppliers' | 'finance' | 'hr' | 'production';
 type AppliedFilter = { all: boolean; ids: string[]; from: string; to: string };
 
 type CountSheet = {
@@ -275,7 +283,55 @@ type CountSheet = {
   totalQty: number;
 };
 
-const NO_DATES: ReportTab[] = ['inventory', 'count'];
+type PartyReport = {
+  totalDue: number;
+  totalPrepaid: number;
+  dueCount: number;
+  prepaidCount: number;
+  count: number;
+  customers?: { id: string; code: string; name: string; phone?: string | null; balance: number; _count: { salesInvoices: number; receipts: number } }[];
+  suppliers?: { id: string; code: string; name: string; phone?: string | null; balance: number; _count: { purchaseInvoices: number; payments: number } }[];
+};
+
+type FinanceReport = {
+  expenses: { id: string; amount: number; expenseDate: string; notes?: string | null; category: { name: string }; account: { name: string } }[];
+  incomes: { id: string; amount: number; incomeDate: string; notes?: string | null; category: { name: string }; account: { name: string } }[];
+  checks: { id: string; checkNumber: string; bankName: string; amount: number; dueDate: string; status: string; direction: string; customer?: { name: string } | null; supplier?: { name: string } | null }[];
+  transfers: { id: string; number: string; amount: number; note?: string | null; createdAt: string; fromAccount: { name: string }; toAccount: { name: string }; createdBy?: { fullName: string } | null }[];
+  expenseTotal: number;
+  incomeTotal: number;
+  net: number;
+  transferTotal: number;
+  pendingChecks: number;
+  byExpenseCategory: { label: string; value: number }[];
+  byIncomeCategory: { label: string; value: number }[];
+};
+
+type HrReport = {
+  employees: { id: string; code: string; name: string; salary: number; commissionPercent: number; phone?: string | null; _count: { attendance: number; leaves: number; movements: number } }[];
+  attendance: { id: string; workDate: string; status: string; lateMinutes: number; overtimeMinutes: number; overtimeApproved: boolean; employee: { code: string; name: string } }[];
+  leaves: { id: string; fromDate: string; toDate: string; kind: string; status: string; employee: { code: string; name: string } }[];
+  movements: { id: string; kind: string; amount: number; movementDate: string; notes?: string | null; employee: { code: string; name: string } }[];
+  payroll: { id: string; number: string; fromDate: string; toDate: string; status: string; totalNet: number; lines: { employee: { code: string; name: string }; net?: number }[] }[];
+  employeeCount: number;
+  salaryTotal: number;
+  overtimeMinutes: number;
+  movementTotal: number;
+  leaveCount: number;
+  attendanceCount: number;
+};
+
+type ProductionReport = {
+  orders: { id: string; number: string; status: string; quantity: number; totalCost: number; createdAt: string; product: { sku: string; name: string }; rawWarehouse: { name: string }; finishedWarehouse: { name: string } }[];
+  jobs: { id: string; number: string; status: string; title?: string | null; totalCost: number; createdAt: string; finishedProduct?: { sku: string; name: string } | null; rawWarehouse: { name: string }; finishedWarehouse: { name: string }; stages: { kind: string; status?: string }[] }[];
+  orderCount: number;
+  jobCount: number;
+  orderCost: number;
+  jobCost: number;
+  totalCost: number;
+};
+
+const NO_DATES: ReportTab[] = ['inventory', 'count', 'customers', 'suppliers'];
 
 const TAB_LABEL: Record<ReportTab, string> = {
   inventory: 'المخزون',
@@ -285,6 +341,11 @@ const TAB_LABEL: Record<ReportTab, string> = {
   profit: 'الأرباح',
   products: 'المنتجات',
   cash: 'الخزنة',
+  customers: 'العملاء',
+  suppliers: 'الموردين',
+  finance: 'المالية',
+  hr: 'الموارد البشرية',
+  production: 'التصنيع',
 };
 
 export function ReportsPage() {
@@ -297,6 +358,11 @@ export function ReportsPage() {
   const [purchases, setPurchases] = useState<PurchasesReport | null>(null);
   const [profit, setProfit] = useState<Profit | null>(null);
   const [cash, setCash] = useState<{ totalIn: number; totalOut: number; net: number; transactions: { direction: string; amount: number; description: string; createdAt: string; account: { name: string } }[] } | null>(null);
+  const [customersReport, setCustomersReport] = useState<PartyReport | null>(null);
+  const [suppliersReport, setSuppliersReport] = useState<PartyReport | null>(null);
+  const [financeReport, setFinanceReport] = useState<FinanceReport | null>(null);
+  const [hrReport, setHrReport] = useState<HrReport | null>(null);
+  const [productionReport, setProductionReport] = useState<ProductionReport | null>(null);
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
   const [allWarehouses, setAllWarehouses] = useState(false);
@@ -358,6 +424,16 @@ export function ReportsPage() {
       setProfit(await api<Profit>(`/reports/profit${suffix}`));
     } else if (nextTab === 'cash') {
       setCash(await api(`/reports/cash${suffix}`));
+    } else if (nextTab === 'customers') {
+      setCustomersReport(await api<PartyReport>('/reports/customers'));
+    } else if (nextTab === 'suppliers') {
+      setSuppliersReport(await api<PartyReport>('/reports/suppliers'));
+    } else if (nextTab === 'finance') {
+      setFinanceReport(await api<FinanceReport>(`/reports/finance${suffix}`));
+    } else if (nextTab === 'hr') {
+      setHrReport(await api<HrReport>(`/reports/hr${suffix}`));
+    } else if (nextTab === 'production') {
+      setProductionReport(await api<ProductionReport>(`/reports/production${suffix}`));
     } else {
       setProducts(await api<ProductInsights>(`/reports/products${suffix}`));
     }
@@ -605,7 +681,7 @@ export function ReportsPage() {
     <div>
       <PageHeader
         title="التقارير"
-        subtitle="اختار المخزن أو المخازن، وبعدين اعرض تقرير المخزون أو المبيعات أو المشتريات أو الأرباح أو الخزنة"
+        subtitle="تقارير مفصّلة لكل أجزاء النظام: مخزون · مبيعات · مشتريات · مالية · عملاء · موارد بشرية · تصنيع"
         actions={
           <>
             <SearchBox value={search} onChange={setSearch} placeholder="بحث في التقرير..." />
@@ -627,8 +703,13 @@ export function ReportsPage() {
           ['products', 'المنتجات', Package],
           ['profit', 'الأرباح', TrendingUp],
           ['cash', 'الخزنة', Wallet],
+          ['finance', 'المالية', Coins],
+          ['customers', 'العملاء', Users],
+          ['suppliers', 'الموردين', Truck],
+          ['hr', 'الموارد البشرية', Users],
+          ['production', 'التصنيع', Factory],
         ] as const).map(([k, label, Icon]) => (
-          <button key={k} type="button" onClick={() => setTab(k)} className={`flex h-11 min-w-[140px] flex-1 items-center justify-center gap-2 rounded-xl text-[13px] font-bold transition ${tab === k ? 'bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}>
+          <button key={k} type="button" onClick={() => setTab(k)} className={`flex h-11 min-w-[120px] flex-1 items-center justify-center gap-2 rounded-xl text-[13px] font-bold transition ${tab === k ? 'bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}>
             <Icon size={16} /> {label}
           </button>
         ))}
@@ -1076,6 +1157,7 @@ export function ReportsPage() {
           revenue={profit.revenue ?? profit.salesTotal}
           cogs={profit.cogs || 0}
           expenses={profit.expenses || 0}
+          incomes={profit.incomes || 0}
           gross={profit.operatingProfit ?? ((profit.revenue ?? profit.salesTotal) - (profit.cogs || 0))}
           net={profit.netProfit ?? profit.grossProfit}
           invoiceDiff={profit.grossProfit}
@@ -1116,6 +1198,297 @@ export function ReportsPage() {
           </Table>
         </Card>
         </>
+      )}
+
+      {applied && tab === 'customers' && customersReport && (
+        <>
+          <StatGrid>
+            <StatCard label="عدد العملاء" value={String(customersReport.count)} icon={Users} tone="brand" />
+            <StatCard label="مستحق على العملاء" value={formatMoney(customersReport.totalDue)} hint={`${customersReport.dueCount} عميل`} icon={ArrowUpRight} tone="rose" />
+            <StatCard label="دفعات مقدمة" value={formatMoney(customersReport.totalPrepaid)} hint={`${customersReport.prepaidCount} عميل`} icon={ArrowDownLeft} tone="emerald" />
+          </StatGrid>
+          <Card>
+            <CardHeader title="تفاصيل أرصدة العملاء" subtitle="كشف مختصر لكل عميل نشط" icon={Users} />
+            <Table>
+              <thead><tr><Th>الكود</Th><Th>الاسم</Th><Th>الهاتف</Th><Th>فواتير</Th><Th>تحصيلات</Th><Th>الرصيد</Th></tr></thead>
+              <tbody>
+                {(customersReport.customers || []).filter((c) => {
+                  const q = search.trim().toLowerCase();
+                  return !q || [c.code, c.name, c.phone || ''].some((x) => x.toLowerCase().includes(q));
+                }).map((c) => (
+                  <tr key={c.id} className={c.balance > 0.009 ? 'row-credit' : c.balance < -0.009 ? 'row-debit' : ''}>
+                    <Td className="font-mono text-xs" dir="ltr">{c.code}</Td>
+                    <Td className="font-bold">{c.name}</Td>
+                    <Td className="text-slate-500">{c.phone || '—'}</Td>
+                    <Td>{c._count.salesInvoices}</Td>
+                    <Td>{c._count.receipts}</Td>
+                    <Td className={`font-extrabold ${c.balance > 0.009 ? 'text-rose-600' : c.balance < -0.009 ? 'text-emerald-700' : 'text-slate-700'}`}>{formatMoney(c.balance)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+        </>
+      )}
+
+      {applied && tab === 'suppliers' && suppliersReport && (
+        <>
+          <StatGrid>
+            <StatCard label="عدد الموردين" value={String(suppliersReport.count)} icon={Truck} tone="brand" />
+            <StatCard label="مستحق للموردين" value={formatMoney(suppliersReport.totalDue)} hint={`${suppliersReport.dueCount} مورد`} icon={ArrowUpRight} tone="rose" />
+            <StatCard label="دفعات مقدمة" value={formatMoney(suppliersReport.totalPrepaid)} hint={`${suppliersReport.prepaidCount} مورد`} icon={ArrowDownLeft} tone="emerald" />
+          </StatGrid>
+          <Card>
+            <CardHeader title="تفاصيل أرصدة الموردين" subtitle="كشف مختصر لكل مورد نشط" icon={Truck} />
+            <Table>
+              <thead><tr><Th>الكود</Th><Th>الاسم</Th><Th>الهاتف</Th><Th>فواتير</Th><Th>سدادات</Th><Th>الرصيد</Th></tr></thead>
+              <tbody>
+                {(suppliersReport.suppliers || []).filter((c) => {
+                  const q = search.trim().toLowerCase();
+                  return !q || [c.code, c.name, c.phone || ''].some((x) => x.toLowerCase().includes(q));
+                }).map((c) => (
+                  <tr key={c.id} className={c.balance > 0.009 ? 'row-credit' : c.balance < -0.009 ? 'row-debit' : ''}>
+                    <Td className="font-mono text-xs" dir="ltr">{c.code}</Td>
+                    <Td className="font-bold">{c.name}</Td>
+                    <Td className="text-slate-500">{c.phone || '—'}</Td>
+                    <Td>{c._count.purchaseInvoices}</Td>
+                    <Td>{c._count.payments}</Td>
+                    <Td className={`font-extrabold ${c.balance > 0.009 ? 'text-rose-600' : c.balance < -0.009 ? 'text-emerald-700' : 'text-slate-700'}`}>{formatMoney(c.balance)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+        </>
+      )}
+
+      {applied && tab === 'finance' && financeReport && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="إجمالي الواردات" value={formatMoney(financeReport.incomeTotal)} icon={ArrowDownLeft} tone="emerald" />
+            <StatCard label="إجمالي المصروفات" value={formatMoney(financeReport.expenseTotal)} icon={ArrowUpRight} tone="rose" />
+            <StatCard label="صافي المالية" value={formatMoney(financeReport.net)} icon={Coins} tone={financeReport.net >= 0 ? 'emerald' : 'rose'} />
+            <StatCard label="تحويلات الخزنة" value={formatMoney(financeReport.transferTotal)} hint={`${financeReport.transfers.length} تحويل · شيكات معلقة ${financeReport.pendingChecks}`} icon={ArrowLeftRight} tone="sky" />
+          </StatGrid>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="الواردات بالتفصيل" subtitle={`${financeReport.incomes.length} حركة`} icon={ArrowDownLeft} />
+              {financeReport.incomes.length === 0 ? <Empty /> : (
+                <Table>
+                  <thead><tr><Th>التاريخ</Th><Th>البند</Th><Th>الحساب</Th><Th>المبلغ</Th></tr></thead>
+                  <tbody>
+                    {financeReport.incomes.map((row) => (
+                      <tr key={row.id} className="row-debit">
+                        <Td className="whitespace-nowrap text-slate-500">{formatDate(row.incomeDate)}</Td>
+                        <Td><Badge tone="emerald">{row.category.name}</Badge></Td>
+                        <Td>{row.account.name}</Td>
+                        <Td className="font-extrabold text-emerald-700">{formatMoney(row.amount)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </Card>
+            <Card>
+              <CardHeader title="المصروفات بالتفصيل" subtitle={`${financeReport.expenses.length} مصروف`} icon={ArrowUpRight} />
+              {financeReport.expenses.length === 0 ? <Empty /> : (
+                <Table>
+                  <thead><tr><Th>التاريخ</Th><Th>البند</Th><Th>الحساب</Th><Th>المبلغ</Th></tr></thead>
+                  <tbody>
+                    {financeReport.expenses.map((row) => (
+                      <tr key={row.id} className="row-credit">
+                        <Td className="whitespace-nowrap text-slate-500">{formatDate(row.expenseDate)}</Td>
+                        <Td><Badge tone="amber">{row.category.name}</Badge></Td>
+                        <Td>{row.account.name}</Td>
+                        <Td className="font-extrabold text-rose-600">{formatMoney(row.amount)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </Card>
+          </div>
+          <Card>
+            <CardHeader title="تحويلات بين الخزائن" subtitle={`${financeReport.transfers.length} تحويل`} icon={ArrowLeftRight} />
+            {financeReport.transfers.length === 0 ? <Empty text="لا توجد تحويلات في الفترة" /> : (
+              <Table>
+                <thead><tr><Th>الرقم</Th><Th>التاريخ</Th><Th>من</Th><Th>إلى</Th><Th>المبلغ</Th><Th>ملاحظة</Th></tr></thead>
+                <tbody>
+                  {financeReport.transfers.map((row) => (
+                    <tr key={row.id}>
+                      <Td className="font-mono text-xs" dir="ltr">{row.number}</Td>
+                      <Td>{formatDate(row.createdAt)}</Td>
+                      <Td className="text-rose-700">{row.fromAccount.name}</Td>
+                      <Td className="text-emerald-700">{row.toAccount.name}</Td>
+                      <Td className="font-extrabold">{formatMoney(row.amount)}</Td>
+                      <Td className="text-muted">{row.note || '—'}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+          <Card>
+            <CardHeader title="الشيكات" subtitle={`${financeReport.checks.length} شيك`} icon={FileSpreadsheet} />
+            {financeReport.checks.length === 0 ? <Empty /> : (
+              <Table>
+                <thead><tr><Th>الرقم</Th><Th>الاتجاه</Th><Th>البنك</Th><Th>الاستحقاق</Th><Th>الطرف</Th><Th>الحالة</Th><Th>المبلغ</Th></tr></thead>
+                <tbody>
+                  {financeReport.checks.map((row) => (
+                    <tr key={row.id}>
+                      <Td className="font-mono text-xs" dir="ltr">{row.checkNumber}</Td>
+                      <Td><Badge tone={row.direction === 'IN' ? 'emerald' : 'rose'}>{row.direction === 'IN' ? 'وارد' : 'صادر'}</Badge></Td>
+                      <Td>{row.bankName}</Td>
+                      <Td>{formatDate(row.dueDate)}</Td>
+                      <Td>{row.customer?.name || row.supplier?.name || '—'}</Td>
+                      <Td><Badge tone={row.status === 'PENDING' ? 'amber' : row.status === 'CLEARED' ? 'emerald' : 'rose'}>{row.status}</Badge></Td>
+                      <Td className="font-extrabold">{formatMoney(row.amount)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {applied && tab === 'hr' && hrReport && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="الموظفون" value={String(hrReport.employeeCount)} hint={`مرتبات أساسية ${formatMoney(hrReport.salaryTotal)}`} icon={Users} tone="brand" />
+            <StatCard label="الحضور" value={String(hrReport.attendanceCount)} hint={`إضافي معتمد ${(hrReport.overtimeMinutes / 60).toFixed(1)} س`} icon={ClipboardCheck} tone="sky" />
+            <StatCard label="الإجازات" value={String(hrReport.leaveCount)} icon={AlertTriangle} tone="amber" />
+            <StatCard label="حركات مالية" value={formatMoney(hrReport.movementTotal)} hint={`${hrReport.movements.length} حركة`} icon={Coins} tone="emerald" />
+          </StatGrid>
+          <Card>
+            <CardHeader title="قائمة الموظفين" subtitle="الرواتب والعمولة والنشاط" icon={Users} />
+            <Table>
+              <thead><tr><Th>الكود</Th><Th>الاسم</Th><Th>الراتب</Th><Th>عمولة %</Th><Th>حضور</Th><Th>إجازات</Th><Th>حركات</Th></tr></thead>
+              <tbody>
+                {hrReport.employees.filter((e) => {
+                  const q = search.trim().toLowerCase();
+                  return !q || [e.code, e.name].some((x) => x.toLowerCase().includes(q));
+                }).map((e) => (
+                  <tr key={e.id}>
+                    <Td className="font-mono text-xs" dir="ltr">{e.code}</Td>
+                    <Td className="font-bold">{e.name}</Td>
+                    <Td>{formatMoney(e.salary)}</Td>
+                    <Td>{e.commissionPercent}%</Td>
+                    <Td>{e._count.attendance}</Td>
+                    <Td>{e._count.leaves}</Td>
+                    <Td>{e._count.movements}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="الحضور في الفترة" subtitle={`${hrReport.attendance.length} سجل`} icon={ClipboardCheck} />
+              <Table>
+                <thead><tr><Th>التاريخ</Th><Th>الموظف</Th><Th>الحالة</Th><Th>تأخير</Th><Th>إضافي</Th></tr></thead>
+                <tbody>
+                  {hrReport.attendance.slice(0, 100).map((a) => (
+                    <tr key={a.id}>
+                      <Td>{formatDate(a.workDate)}</Td>
+                      <Td>{a.employee.name}</Td>
+                      <Td><Badge tone="sky">{a.status}</Badge></Td>
+                      <Td>{a.lateMinutes} د</Td>
+                      <Td>{a.overtimeMinutes} د{a.overtimeApproved ? ' ✓' : ''}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Card>
+            <Card>
+              <CardHeader title="الحركات المالية" subtitle={`${hrReport.movements.length} حركة`} icon={Coins} />
+              <Table>
+                <thead><tr><Th>التاريخ</Th><Th>الموظف</Th><Th>النوع</Th><Th>المبلغ</Th></tr></thead>
+                <tbody>
+                  {hrReport.movements.slice(0, 100).map((m) => (
+                    <tr key={m.id}>
+                      <Td>{formatDate(m.movementDate)}</Td>
+                      <Td>{m.employee.name}</Td>
+                      <Td><Badge tone="slate">{m.kind}</Badge></Td>
+                      <Td className="font-extrabold">{formatMoney(m.amount)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Card>
+          </div>
+          <Card>
+            <CardHeader title="مسيرات الرواتب" subtitle={`${hrReport.payroll.length} مسير`} icon={FileSpreadsheet} />
+            {hrReport.payroll.length === 0 ? <Empty text="لا توجد مسيرات في الفترة" /> : (
+              <Table>
+                <thead><tr><Th>الرقم</Th><Th>الفترة</Th><Th>الحالة</Th><Th>صافي المسير</Th><Th>عدد البنود</Th></tr></thead>
+                <tbody>
+                  {hrReport.payroll.map((p) => (
+                    <tr key={p.id}>
+                      <Td className="font-mono text-xs" dir="ltr">{p.number}</Td>
+                      <Td>{formatDate(p.fromDate)} → {formatDate(p.toDate)}</Td>
+                      <Td><Badge tone={p.status === 'POSTED' ? 'emerald' : 'amber'}>{p.status}</Badge></Td>
+                      <Td className="font-extrabold">{formatMoney(p.totalNet)}</Td>
+                      <Td>{p.lines.length}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {applied && tab === 'production' && productionReport && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="أوامر الإنتاج" value={String(productionReport.orderCount)} hint={formatMoney(productionReport.orderCost)} icon={Factory} tone="brand" />
+            <StatCard label="أوامر التصنيع (مراحل)" value={String(productionReport.jobCount)} hint={formatMoney(productionReport.jobCost)} icon={Package} tone="sky" />
+            <StatCard label="إجمالي تكلفة التصنيع" value={formatMoney(productionReport.totalCost)} icon={Coins} tone="amber" />
+          </StatGrid>
+          <Card>
+            <CardHeader title="أوامر الإنتاج" subtitle="من الوصفات" icon={Factory} />
+            {productionReport.orders.length === 0 ? <Empty /> : (
+              <Table>
+                <thead><tr><Th>الرقم</Th><Th>المنتج</Th><Th>الكمية</Th><Th>من</Th><Th>إلى</Th><Th>الحالة</Th><Th>التكلفة</Th><Th>التاريخ</Th></tr></thead>
+                <tbody>
+                  {productionReport.orders.map((o) => (
+                    <tr key={o.id}>
+                      <Td className="font-mono text-xs" dir="ltr">{o.number}</Td>
+                      <Td className="font-bold">{o.product.name}</Td>
+                      <Td>{o.quantity}</Td>
+                      <Td>{o.rawWarehouse.name}</Td>
+                      <Td>{o.finishedWarehouse.name}</Td>
+                      <Td><Badge tone="sky">{o.status}</Badge></Td>
+                      <Td className="font-extrabold">{formatMoney(o.totalCost)}</Td>
+                      <Td>{formatDate(o.createdAt)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+          <Card>
+            <CardHeader title="أوامر التصنيع بالمراحل" subtitle="طباعة · تبطين · سلتر · تفصيل" icon={Package} />
+            {productionReport.jobs.length === 0 ? <Empty /> : (
+              <Table>
+                <thead><tr><Th>الرقم</Th><Th>العنوان / المنتج</Th><Th>المراحل</Th><Th>الحالة</Th><Th>التكلفة</Th><Th>التاريخ</Th></tr></thead>
+                <tbody>
+                  {productionReport.jobs.map((j) => (
+                    <tr key={j.id}>
+                      <Td className="font-mono text-xs" dir="ltr">{j.number}</Td>
+                      <Td className="font-bold">{j.title || j.finishedProduct?.name || '—'}</Td>
+                      <Td className="text-xs text-slate-600">{j.stages.map((s) => s.kind).join(' · ') || '—'}</Td>
+                      <Td><Badge tone="sky">{j.status}</Badge></Td>
+                      <Td className="font-extrabold">{formatMoney(j.totalCost)}</Td>
+                      <Td>{formatDate(j.createdAt)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+        </div>
       )}
     </div>
   );

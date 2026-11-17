@@ -578,4 +578,116 @@ export class CashService {
     ]);
     return pageResult(items, total, page, { amount: sum._sum.amount || 0 });
   }
+
+  async listTransfers(query?: { page?: string; pageSize?: string; q?: string }) {
+    const page = readPage(query);
+    const where = query?.q
+      ? {
+          OR: [
+            { number: { contains: query.q } },
+            { note: { contains: query.q } },
+            { fromAccount: { name: { contains: query.q } } },
+            { toAccount: { name: { contains: query.q } } },
+          ],
+        }
+      : undefined;
+    const include = {
+      fromAccount: true,
+      toAccount: true,
+      createdBy: { select: { fullName: true } },
+    } as const;
+    if (!page) {
+      return this.prisma.cashTransfer.findMany({
+        where,
+        include,
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      });
+    }
+    const [total, items, sum] = await Promise.all([
+      this.prisma.cashTransfer.count({ where }),
+      this.prisma.cashTransfer.findMany({
+        where,
+        include,
+        orderBy: { createdAt: 'desc' },
+        skip: page.skip,
+        take: page.take,
+      }),
+      this.prisma.cashTransfer.aggregate({ where, _sum: { amount: true } }),
+    ]);
+    return pageResult(items, total, page, { amount: sum._sum.amount || 0 });
+  }
+
+  async createTransfer(data: {
+    fromAccountId: string;
+    toAccountId: string;
+    amount: number;
+    note?: string;
+    createdById?: string;
+  }) {
+    if (data.amount <= 0) throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
+    if (data.fromAccountId === data.toAccountId) {
+      throw new BadRequestException('اختر خزنة/حساب مختلف للتحويل إليه');
+    }
+    await assertPeriodsOpen(this.prisma, new Date());
+    const number = await this.sequence.next('cash_transfer', 'CTF');
+    return this.prisma.$transaction(async (tx) => {
+      const from = await tx.cashAccount.findUnique({ where: { id: data.fromAccountId } });
+      const to = await tx.cashAccount.findUnique({ where: { id: data.toAccountId } });
+      if (!from || !from.isActive) throw new NotFoundException('الخزنة/الحساب المصدر غير موجود');
+      if (!to || !to.isActive) throw new NotFoundException('الخزنة/الحساب الوجهة غير موجود');
+      if (from.balance < data.amount) throw new BadRequestException('رصيد المصدر غير كافٍ للتحويل');
+
+      const fromMethod = await tx.payMethod.findUnique({ where: { cashAccountId: from.id } });
+      const toMethod = await tx.payMethod.findUnique({ where: { cashAccountId: to.id } });
+      const note = data.note?.trim();
+      const base = `تحويل ${from.name} ← ${to.name}`;
+
+      await tx.cashAccount.update({ where: { id: from.id }, data: { balance: { decrement: data.amount } } });
+      await tx.cashAccount.update({ where: { id: to.id }, data: { balance: { increment: data.amount } } });
+
+      await tx.cashTransaction.create({
+        data: {
+          accountId: from.id,
+          direction: CashDirection.OUT,
+          amount: data.amount,
+          description: note ? `${base}: ${note}` : base,
+          paymentMethod: fromMethod?.id || '',
+          reference: number,
+          voucherKind: 'TRANSFER',
+          voucherNumber: number,
+          createdById: data.createdById,
+        },
+      });
+      await tx.cashTransaction.create({
+        data: {
+          accountId: to.id,
+          direction: CashDirection.IN,
+          amount: data.amount,
+          description: note ? `${base}: ${note}` : base,
+          paymentMethod: toMethod?.id || '',
+          reference: number,
+          voucherKind: 'TRANSFER',
+          voucherNumber: number,
+          createdById: data.createdById,
+        },
+      });
+
+      return tx.cashTransfer.create({
+        data: {
+          number,
+          fromAccountId: from.id,
+          toAccountId: to.id,
+          amount: data.amount,
+          note: note || null,
+          createdById: data.createdById,
+        },
+        include: {
+          fromAccount: true,
+          toAccount: true,
+          createdBy: { select: { fullName: true } },
+        },
+      });
+    });
+  }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CalendarClock, FileCheck2, Plus, Receipt, Scale, Tags } from 'lucide-react';
+import { ArrowDownLeft, CalendarClock, FileCheck2, Plus, Receipt, Scale, Tags, TrendingUp } from 'lucide-react';
 import { api, formatDate, formatMoney } from '../lib/api';
 import { useConfirm, useToast } from '../lib/feedback';
 import { BarList } from '../components/charts';
@@ -8,9 +8,10 @@ import {
   type Tone,
 } from '../components/ui';
 
-type Tab = 'expenses' | 'checks';
+type Tab = 'expenses' | 'incomes' | 'checks';
 
 type Expense = { id: string; amount: number; expenseDate: string; notes?: string | null; category: { name: string }; account: { name: string } };
+type Income = { id: string; amount: number; incomeDate: string; notes?: string | null; category: { name: string }; account: { name: string } };
 type Check = { id: string; direction: string; checkNumber: string; bankName: string; amount: number; dueDate: string; status: string; customer?: { name: string } | null; supplier?: { name: string } | null };
 const CHECK_STATUS: Record<string, { label: string; tone: Tone }> = {
   PENDING: { label: 'قيد الانتظار', tone: 'amber' },
@@ -20,6 +21,8 @@ const CHECK_STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 const num = (v: number | '') => (v === '' ? 0 : v);
+
+type MoneySummary = { totalAmount: number; monthAmount: number; byCategory: { label: string; value: number }[] };
 
 export function FinancePage() {
   const toast = useToast();
@@ -31,17 +34,23 @@ export function FinancePage() {
   const [methods, setMethods] = useState<{ id: string; name: string; kind: 'IMMEDIATE' | 'CHECK' }[]>([]);
   const [settleMethod, setSettleMethod] = useState<Record<string, string>>({});
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [incomeCategories, setIncomeCategories] = useState<{ id: string; name: string }[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [incomes, setIncomes] = useState<Income[]>([]);
   const [checks, setChecks] = useState<Check[]>([]);
   const [catName, setCatName] = useState('');
+  const [incomeCatName, setIncomeCatName] = useState('');
   const [expense, setExpense] = useState({ categoryId: '', methodId: '', amount: '' as number | '', notes: '' });
+  const [income, setIncome] = useState({ categoryId: '', methodId: '', amount: '' as number | '', notes: '' });
   const [checkForm, setCheckForm] = useState({ direction: 'IN', checkNumber: '', bankName: '', amount: '' as number | '', dueDate: '' });
   const [checkFilter, setCheckFilter] = useState<'ALL' | 'PENDING' | 'IN' | 'OUT'>('ALL');
   const [listPage, setListPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [expenseTotalCount, setExpenseTotalCount] = useState(0);
+  const [incomeTotalCount, setIncomeTotalCount] = useState(0);
   const [checkTotal, setCheckTotal] = useState(0);
-  const [expenseSummary, setExpenseSummary] = useState<{ totalAmount: number; monthAmount: number; byCategory: { label: string; value: number }[] }>({ totalAmount: 0, monthAmount: 0, byCategory: [] });
+  const [expenseSummary, setExpenseSummary] = useState<MoneySummary>({ totalAmount: 0, monthAmount: 0, byCategory: [] });
+  const [incomeSummary, setIncomeSummary] = useState<MoneySummary>({ totalAmount: 0, monthAmount: 0, byCategory: [] });
   const [checkSummary, setCheckSummary] = useState({ total: 0, pendingIn: 0, pendingInCount: 0, pendingOut: 0, pendingOutCount: 0 });
 
   async function load() {
@@ -51,19 +60,25 @@ export function FinancePage() {
       const checkParams = new URLSearchParams(params);
       if (checkFilter === 'PENDING') checkParams.set('status', 'PENDING');
       if (checkFilter === 'IN' || checkFilter === 'OUT') checkParams.set('direction', checkFilter);
-      const [a, cats, ex, ch] = await Promise.all([
+      const [a, cats, incomeCats, ex, inc, ch] = await Promise.all([
         api<{ id: string; name: string; kind: 'IMMEDIATE' | 'CHECK' }[]>('/cash/methods'),
         api<{ id: string; name: string }[]>('/finance/expense-categories'),
-        api<{ items: Expense[]; total: number; summary: typeof expenseSummary }>(`/finance/expenses?${params}`),
+        api<{ id: string; name: string }[]>('/finance/income-categories'),
+        api<{ items: Expense[]; total: number; summary: MoneySummary }>(`/finance/expenses?${params}`),
+        api<{ items: Income[]; total: number; summary: MoneySummary }>(`/finance/incomes?${params}`),
         api<{ items: Check[]; total: number; summary: typeof checkSummary }>(`/finance/checks?${checkParams}`),
       ]);
       setMethods(a);
       setCategories(cats);
+      setIncomeCategories(incomeCats);
       setExpenses(ex.items);
+      setIncomes(inc.items);
       setChecks(ch.items);
       setExpenseTotalCount(ex.total);
+      setIncomeTotalCount(inc.total);
       setCheckTotal(ch.total);
       setExpenseSummary(ex.summary);
+      setIncomeSummary(inc.summary);
       setCheckSummary(ch.summary);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'تعذر تحميل البيانات المالية');
@@ -92,26 +107,32 @@ export function FinancePage() {
 
   const expenseTotal = expenseSummary.totalAmount;
   const expenseMonth = expenseSummary.monthAmount;
+  const incomeTotal = incomeSummary.totalAmount;
+  const incomeMonth = incomeSummary.monthAmount;
   const pendingIn = checkSummary.pendingIn;
   const pendingOut = checkSummary.pendingOut;
   const byCategory = expenseSummary.byCategory;
+  const byIncomeCategory = incomeSummary.byCategory;
   const visibleChecks = checks;
+  const immediate = methods.filter((method) => method.kind === 'IMMEDIATE');
 
   const tabs: { id: Tab; label: string; count: number }[] = [
     { id: 'expenses', label: 'المصروفات', count: expenseTotalCount },
+    { id: 'incomes', label: 'الواردات', count: incomeTotalCount },
     { id: 'checks', label: 'الشيكات', count: checkSummary.total },
   ];
 
-  if (!loaded) return <div><PageHeader title="المالية" subtitle="مصروفات مصنفة ودفتر شيكات" /><PageSkeleton /></div>;
+  if (!loaded) return <div><PageHeader title="المالية" subtitle="مصروفات · واردات · دفتر شيكات" /><PageSkeleton /></div>;
 
   return (
     <div>
-      <PageHeader title="المالية" subtitle="مصروفات مصنفة ودفتر شيكات" />
+      <PageHeader title="المالية" subtitle="مصروفات · واردات فلوس داخلة · دفتر شيكات" />
       {loadError && <Card className="mb-4"><ErrorState text={loadError} onRetry={load} /></Card>}
 
       <StatGrid>
-        <StatCard label="مصروفات الشهر" value={formatMoney(expenseMonth)} hint={`الإجمالي المسجل ${formatMoney(expenseTotal)}`} icon={Receipt} tone="amber" onClick={() => setTab('expenses')} active={tab === 'expenses'} />
-        <StatCard label="شيكات واردة معلقة" value={formatMoney(pendingIn)} hint={`${checkSummary.pendingInCount} شيك`} icon={FileCheck2} tone="emerald" onClick={() => { setTab('checks'); setCheckFilter('IN'); }} />
+        <StatCard label="مصروفات الشهر" value={formatMoney(expenseMonth)} hint={`الإجمالي ${formatMoney(expenseTotal)}`} icon={Receipt} tone="amber" onClick={() => setTab('expenses')} active={tab === 'expenses'} />
+        <StatCard label="واردات الشهر" value={formatMoney(incomeMonth)} hint={`الإجمالي ${formatMoney(incomeTotal)}`} icon={TrendingUp} tone="emerald" onClick={() => setTab('incomes')} active={tab === 'incomes'} />
+        <StatCard label="شيكات واردة معلقة" value={formatMoney(pendingIn)} hint={`${checkSummary.pendingInCount} شيك`} icon={FileCheck2} tone="sky" onClick={() => { setTab('checks'); setCheckFilter('IN'); }} />
         <StatCard label="شيكات صادرة معلقة" value={formatMoney(pendingOut)} hint={`${checkSummary.pendingOutCount} شيك`} icon={CalendarClock} tone="rose" onClick={() => { setTab('checks'); setCheckFilter('OUT'); }} />
       </StatGrid>
 
@@ -150,7 +171,7 @@ export function FinancePage() {
                   <Label>طريقة الدفع</Label>
                   <Select value={expense.methodId} onChange={(e) => setExpense({ ...expense, methodId: e.target.value })}>
                     <option value="">اختر</option>
-                    {methods.filter((method) => method.kind === 'IMMEDIATE').map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                    {immediate.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
                   </Select>
                 </div>
                 <div><Label>المبلغ</Label><NumberInput value={expense.amount} onValueChange={(v) => setExpense({ ...expense, amount: v })} /></div>
@@ -205,6 +226,100 @@ export function FinancePage() {
                 </Table>
               )}
               <Pager page={listPage} pages={Math.max(1, Math.ceil(expenseTotalCount / pageSize))} total={expenseTotalCount} from={expenseTotalCount === 0 ? 0 : (listPage - 1) * pageSize + 1} to={Math.min(listPage * pageSize, expenseTotalCount)} pageSize={pageSize} onPageSize={setPageSize} onPage={setListPage} />
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {tab === 'incomes' && (
+        <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+          <div className="space-y-4">
+            <Card>
+              <CardHeader title="تسجيل وارد" subtitle="فلوس داخلة على الخزنة / طريقة الدفع" icon={ArrowDownLeft} />
+              <form
+                className="space-y-3"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!income.categoryId || !income.methodId) return toast.error('اختر البند وطريقة الدفع');
+                  if (num(income.amount) <= 0) return toast.error('أدخل مبلغًا أكبر من صفر');
+                  const ok = await run(() => api('/finance/incomes', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      categoryId: income.categoryId,
+                      methodId: income.methodId,
+                      amount: num(income.amount),
+                      notes: income.notes || undefined,
+                    }),
+                  }), 'تم تسجيل الوارد');
+                  if (ok) setIncome({ ...income, amount: '', notes: '' });
+                }}
+              >
+                <div>
+                  <Label>بند الوارد</Label>
+                  <Select value={income.categoryId} onChange={(e) => setIncome({ ...income, categoryId: e.target.value })}>
+                    <option value="">اختر</option>
+                    {incomeCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>طريقة الدفع / الخزنة</Label>
+                  <Select value={income.methodId} onChange={(e) => setIncome({ ...income, methodId: e.target.value })}>
+                    <option value="">اختر</option>
+                    {immediate.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                  </Select>
+                </div>
+                <div><Label>المبلغ</Label><NumberInput value={income.amount} onValueChange={(v) => setIncome({ ...income, amount: v })} /></div>
+                <div><Label>ملاحظة</Label><Input value={income.notes} onChange={(e) => setIncome({ ...income, notes: e.target.value })} placeholder="مصدر الفلوس / سبب" /></div>
+                <Button type="submit" className="w-full" disabled={busy}>تسجيل الوارد</Button>
+              </form>
+            </Card>
+            <Card>
+              <CardHeader title="بنود الواردات" subtitle={`${incomeCategories.length} بند`} icon={Tags} />
+              <form
+                className="flex gap-2"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!incomeCatName.trim()) return toast.error('اكتب اسم البند');
+                  const ok = await run(() => api('/finance/income-categories', { method: 'POST', body: JSON.stringify({ name: incomeCatName.trim() }) }), 'تمت إضافة بند الوارد');
+                  if (ok) setIncomeCatName('');
+                }}
+              >
+                <Input value={incomeCatName} onChange={(e) => setIncomeCatName(e.target.value)} placeholder="مثال: إيجار محل · بيع خردة" />
+                <Button type="submit" variant="secondary" disabled={busy}>إضافة</Button>
+              </form>
+              {incomeCategories.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {incomeCategories.map((c) => <Badge key={c.id} tone="emerald">{c.name}</Badge>)}
+                </div>
+              )}
+            </Card>
+          </div>
+          <div className="space-y-4">
+            {byIncomeCategory.length > 0 && (
+              <Card>
+                <CardHeader title="توزيع الواردات حسب البند" subtitle={`الإجمالي ${formatMoney(incomeTotal)}`} icon={Scale} />
+                <BarList rows={byIncomeCategory} color="from-emerald-400 to-teal-600" />
+              </Card>
+            )}
+            <Card>
+              <CardHeader title="سجل الواردات" subtitle={`${incomeTotalCount} حركة وارد`} icon={TrendingUp} />
+              {incomes.length === 0 ? <Empty text="لا توجد واردات مسجلة" hint="سجّل أول وارد من النموذج" /> : (
+                <Table>
+                  <thead><tr><Th>التاريخ</Th><Th>البند</Th><Th>الخزنة</Th><Th>ملاحظة</Th><Th>المبلغ</Th></tr></thead>
+                  <tbody>
+                    {incomes.map((row) => (
+                      <tr key={row.id} className="row-debit">
+                        <Td className="whitespace-nowrap text-slate-500">{formatDate(row.incomeDate)}</Td>
+                        <Td><Badge tone="emerald">{row.category.name}</Badge></Td>
+                        <Td className="text-slate-600">{row.account.name}</Td>
+                        <Td className="max-w-xs truncate text-muted">{row.notes || '—'}</Td>
+                        <Td className="whitespace-nowrap font-extrabold text-emerald-700">+ {formatMoney(row.amount)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+              <Pager page={listPage} pages={Math.max(1, Math.ceil(incomeTotalCount / pageSize))} total={incomeTotalCount} from={incomeTotalCount === 0 ? 0 : (listPage - 1) * pageSize + 1} to={Math.min(listPage * pageSize, incomeTotalCount)} pageSize={pageSize} onPageSize={setPageSize} onPage={setListPage} />
             </Card>
           </div>
         </div>
@@ -275,7 +390,7 @@ export function FinancePage() {
                             <div className="flex items-center gap-1.5">
                               <Select value={settleMethod[row.id] || ''} onChange={(e) => setSettleMethod({ ...settleMethod, [row.id]: e.target.value })}>
                                 <option value="">طريقة التحصيل</option>
-                                {methods.filter((method) => method.kind === 'IMMEDIATE').map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                                {immediate.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
                               </Select>
                               <Button size="sm" variant="soft" disabled={busy} onClick={() => {
                                 const methodId = settleMethod[row.id];

@@ -12,8 +12,6 @@ const STANDARD_METHODS = [
   { code: 'BANK', name: 'حساب بنكي', accountType: 'BANK', sortOrder: 4 },
 ] as const;
 
-const STANDARD_CODES = new Set(STANDARD_METHODS.map((row) => row.code));
-
 @Injectable()
 export class PayMethodsService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
@@ -37,7 +35,7 @@ export class PayMethodsService implements OnModuleInit {
     if (name.length < 2) throw new BadRequestException('اسم طريقة الدفع حرفين على الأقل');
     if (!code) throw new BadRequestException('كود طريقة الدفع مطلوب');
     if (data.kind === 'CHECK' || data.kind === PayMethodKind.CHECK) {
-      throw new BadRequestException('طرق الدفع المعتمدة: خزنة رئيسية، انستا باي، محفظة، حساب بنكي');
+      throw new BadRequestException('الشيك ليس طريقة دفع فورية — سجّله من دفتر الشيكات');
     }
     const exists = await this.prisma.payMethod.findUnique({ where: { code } });
     if (exists) throw new BadRequestException('الكود مستخدم لطريقة دفع أخرى');
@@ -104,20 +102,11 @@ export class PayMethodsService implements OnModuleInit {
       });
     }
 
-    // عطّل أي طريقة دفع / حساب خارج الأربع المعتمدة (بما فيها الشيك)
+    // عطّل الشيك والطرق القديمة فقط — خزائن/محافظ مخصّصة (مثل أورنج كاش) تبقى نشطة
     const all = await this.prisma.payMethod.findMany();
     for (const method of all) {
-      if (!STANDARD_CODES.has(method.code as typeof STANDARD_METHODS[number]['code'])) {
-        if (method.isActive) {
-          await this.prisma.payMethod.update({ where: { id: method.id }, data: { isActive: false } });
-        }
-      }
-    }
-    const accounts = await this.prisma.cashAccount.findMany();
-    for (const account of accounts) {
-      const keep = STANDARD_CODES.has(account.code as typeof STANDARD_METHODS[number]['code']);
-      if (!keep && account.isActive) {
-        await this.prisma.cashAccount.update({ where: { id: account.id }, data: { isActive: false } });
+      if (method.kind === PayMethodKind.CHECK && method.isActive) {
+        await this.prisma.payMethod.update({ where: { id: method.id }, data: { isActive: false } });
       }
     }
 

@@ -155,6 +155,95 @@ export class FinanceService {
     });
   }
 
+  listIncomeCategories() {
+    return this.prisma.incomeCategory.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  createIncomeCategory(name: string) {
+    return this.prisma.incomeCategory.create({ data: { name: name.trim() } });
+  }
+
+  async listIncomes(query?: { page?: string; pageSize?: string }) {
+    const page = readPage(query);
+    if (!page) {
+      return this.prisma.income.findMany({ include: { category: true, account: true }, orderBy: { incomeDate: 'desc' } });
+    }
+    const monthKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
+    const [total, items, all] = await Promise.all([
+      this.prisma.income.count(),
+      this.prisma.income.findMany({ include: { category: true, account: true }, orderBy: { incomeDate: 'desc' }, skip: page.skip, take: page.take }),
+      this.prisma.income.findMany({ select: { amount: true, incomeDate: true, category: { select: { name: true } } } }),
+    ]);
+    const byCategory = new Map<string, number>();
+    let totalAmount = 0;
+    let monthAmount = 0;
+    for (const row of all) {
+      totalAmount += row.amount;
+      const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(row.incomeDate).slice(0, 7);
+      if (key === monthKey) monthAmount += row.amount;
+      byCategory.set(row.category.name, (byCategory.get(row.category.name) || 0) + row.amount);
+    }
+    return pageResult(items, total, page, {
+      summary: {
+        totalAmount,
+        monthAmount,
+        byCategory: [...byCategory.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8),
+      },
+    });
+  }
+
+  async createIncome(data: {
+    categoryId: string;
+    accountId?: string;
+    methodId?: string;
+    amount: number;
+    incomeDate?: string;
+    paymentMethod?: string;
+    notes?: string;
+  }) {
+    if (data.amount <= 0) throw new BadRequestException('المبلغ لازم يكون أكبر من صفر');
+    await assertPeriodsOpen(this.prisma, data.incomeDate || new Date());
+    let accountId = data.accountId || '';
+    let paymentMethod = data.methodId || data.paymentMethod || '';
+    if (data.methodId) {
+      const method = await this.prisma.payMethod.findUnique({ where: { id: data.methodId } });
+      if (!method || method.kind !== PayMethodKind.IMMEDIATE || !method.cashAccountId) {
+        throw new BadRequestException('الوارد يدخل على طريقة دفع فورية');
+      }
+      accountId = method.cashAccountId;
+      paymentMethod = method.id;
+    }
+    const account = await this.prisma.cashAccount.findUnique({ where: { id: accountId } });
+    if (!account) throw new NotFoundException('حساب طريقة الدفع غير موجود');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.cashAccount.update({
+        where: { id: accountId },
+        data: { balance: { increment: data.amount } },
+      });
+      const category = await tx.incomeCategory.findUnique({ where: { id: data.categoryId } });
+      await tx.cashTransaction.create({
+        data: {
+          accountId,
+          direction: 'IN',
+          amount: data.amount,
+          description: `وارد${category ? `: ${category.name}` : ''}${data.notes ? ` - ${data.notes}` : ''}`,
+          paymentMethod,
+        },
+      });
+      return tx.income.create({
+        data: {
+          categoryId: data.categoryId,
+          accountId,
+          amount: data.amount,
+          incomeDate: data.incomeDate ? new Date(data.incomeDate) : new Date(),
+          paymentMethod,
+          notes: data.notes,
+        },
+        include: { category: true, account: true },
+      });
+    });
+  }
+
   async listChecks(query?: { page?: string; pageSize?: string; status?: string; direction?: string }) {
     const page = readPage(query);
     const where = {

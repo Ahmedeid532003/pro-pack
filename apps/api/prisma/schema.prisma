@@ -111,6 +111,7 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   cashTransactions CashTransaction[]
+  cashTransfers    CashTransfer[]    @relation("CashTransferCreatedBy")
   salesInvoices    SalesInvoice[]    @relation("SalesCreatedBy")
   purchaseInvoices PurchaseInvoice[] @relation("PurchaseCreatedBy")
   shifts           CashierShift[]
@@ -403,8 +404,11 @@ model CashAccount {
   receipts     Receipt[]
   shifts       CashierShift[]
   expenses     Expense[]
+  incomes      Income[]
   checks       BankCheck[]
   payMethod    PayMethod?
+  transfersFrom CashTransfer[] @relation("CashTransferFrom")
+  transfersTo   CashTransfer[] @relation("CashTransferTo")
 }
 
 model PayMethod {
@@ -424,6 +428,26 @@ enum CashVoucherKind {
   RECEIPT
   PAYOUT
   MANUAL
+  TRANSFER
+}
+
+model CashTransfer {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  fromAccountId String
+  toAccountId   String
+  amount        Float
+  note          String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  fromAccount CashAccount @relation("CashTransferFrom", fields: [fromAccountId], references: [id])
+  toAccount   CashAccount @relation("CashTransferTo", fields: [toAccountId], references: [id])
+  createdBy   User?       @relation("CashTransferCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdAt])
+  @@index([fromAccountId])
+  @@index([toAccountId])
 }
 
 model CashTransaction {
@@ -792,6 +816,28 @@ model Expense {
   category ExpenseCategory @relation(fields: [categoryId], references: [id])
   account  CashAccount     @relation(fields: [accountId], references: [id])
   shift    CashierShift?   @relation(fields: [shiftId], references: [id])
+}
+
+model IncomeCategory {
+  id      String   @id @default(cuid())
+  name    String   @unique
+  incomes Income[]
+}
+
+model Income {
+  id            String   @id @default(cuid())
+  categoryId    String
+  accountId     String
+  amount        Float
+  incomeDate    DateTime @default(now())
+  paymentMethod String   @default("")
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  category IncomeCategory @relation(fields: [categoryId], references: [id])
+  account  CashAccount    @relation(fields: [accountId], references: [id])
+
+  @@index([incomeDate])
 }
 
 model BankCheck {

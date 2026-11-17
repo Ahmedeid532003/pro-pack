@@ -97,6 +97,36 @@ export class ReportsController {
     return this.service.productInsights(from, to, await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
   }
 
+  @Get('customers')
+  customers() {
+    return this.service.customersReport();
+  }
+
+  @Get('suppliers')
+  suppliers() {
+    return this.service.suppliersReport();
+  }
+
+  @Get('finance')
+  finance(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.financeReport(from, to);
+  }
+
+  @Get('hr')
+  hr(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.hrReport(from, to);
+  }
+
+  @Get('production')
+  async production(
+    @Req() req: { user: { userId: string; role: string } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouseIds') warehouseIdsQuery?: string,
+  ) {
+    return this.service.productionReport(from, to, await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
+  }
+
   @Get('inventory/excel')
   @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   async inventoryExcel(

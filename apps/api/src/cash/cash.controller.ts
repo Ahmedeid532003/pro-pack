@@ -50,6 +50,13 @@ class MethodDto {
   @IsOptional() @IsNumber() balance?: number;
 }
 
+class TransferDto {
+  @IsString() fromAccountId!: string;
+  @IsString() toAccountId!: string;
+  @IsNumber() amount!: number;
+  @IsOptional() @IsString() note?: string;
+}
+
 @Controller('cash')
 export class CashController {
   constructor(private service: CashService, private methods: PayMethodsService) {}
@@ -128,5 +135,16 @@ export class CashController {
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
   createPayment(@Body() dto: PaymentDto) {
     return this.service.createPayment(dto);
+  }
+
+  @Get('transfers')
+  transfers(@Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('q') q?: string) {
+    return this.service.listTransfers({ page, pageSize, q });
+  }
+
+  @Post('transfers')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  createTransfer(@Body() dto: TransferDto, @Req() req: { user: { userId: string } }) {
+    return this.service.createTransfer({ ...dto, createdById: req.user.userId });
   }
 }

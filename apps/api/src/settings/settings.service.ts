@@ -243,6 +243,7 @@ const SNAPSHOT_MODELS = [
   'salesInvoice', 'salesInvoiceLine', 'purchaseInvoice', 'purchaseInvoiceLine', 'salesReturn', 'salesReturnLine',
   'purchaseReturn', 'purchaseReturnLine', 'payment', 'receipt', 'setting', 'fiscalPeriod', 'fiscalPeriodLog', 'sequence',
   'customerPrice', 'warehouseLocation', 'productLocation', 'userWarehouse', 'cashierShift', 'expenseCategory', 'expense',
+  'incomeCategory', 'income', 'cashTransfer',
   'bankCheck', 'tradeDocument', 'tradeDocumentLine', 'auditLog', 'appNotification', 'orgNode', 'recordNote', 'workTask',
   'taskComment', 'savedReport', 'savedView', 'attachment', 'fileBlob', 'automationRule', 'automationRun', 'idempotencyKey',
   'customerContract',

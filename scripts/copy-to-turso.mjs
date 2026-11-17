@@ -4,14 +4,16 @@
 //   --dry-run  only report what would be copied
 //   --replace  drop existing tables on Turso first (otherwise refuses if data already exists)
 import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { createClient } from '@libsql/client';
 
-const root = new URL('..', import.meta.url);
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dryRun = process.argv.includes('--dry-run');
 const replace = process.argv.includes('--replace');
 
-const envFile = new URL('.env.turso', root);
+const envFile = join(root, '.env.turso');
 if (existsSync(envFile)) {
   for (const line of readFileSync(envFile, 'utf8').split(/\r?\n/)) {
     const m = line.match(/^\s*([A-Z_]+)\s*=\s*"?([^"]*)"?\s*$/);
@@ -19,7 +21,12 @@ if (existsSync(envFile)) {
   }
 }
 
-const local = new DatabaseSync(new URL('apps/api/prisma/dev.db', root).pathname.replace(/^\/([A-Za-z]:)/, '$1'), { readOnly: true });
+const localDbPath = join(root, 'apps', 'api', 'prisma', 'dev.db');
+if (!existsSync(localDbPath)) {
+  console.error('Missing local DB:', localDbPath);
+  process.exit(1);
+}
+const local = new DatabaseSync(localDbPath, { readOnly: true });
 const objects = local.prepare("SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'").all();
 const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
 
@@ -53,11 +60,19 @@ if (existing.length && !replace) {
   console.error(`Turso already has ${existing.length} tables. Re-run with --replace to overwrite.`);
   process.exit(1);
 }
+
+await turso.execute('PRAGMA foreign_keys = OFF');
 if (existing.length) {
-  await turso.batch(['PRAGMA foreign_keys = OFF', ...existing.map((t) => `DROP TABLE IF EXISTS "${t}"`)], 'write');
+  // Drop children first so FK checks never block the wipe.
+  for (const t of [...existing].reverse()) {
+    await turso.execute(`DROP TABLE IF EXISTS "${t}"`);
+  }
 }
 
-await turso.batch(objects.filter((o) => o.type === 'table').map((o) => o.sql), 'write');
+const tableSql = objects.filter((o) => o.type === 'table').map((o) => o.sql);
+for (let i = 0; i < tableSql.length; i += 20) {
+  await turso.batch(tableSql.slice(i, i + 20), 'write');
+}
 for (const t of ordered) {
   const rows = local.prepare(`SELECT * FROM "${t}"`).all();
   if (!rows.length) continue;
@@ -68,7 +83,8 @@ for (const t of ordered) {
   }
   process.stdout.write(`${t}: ${rows.length}\n`);
 }
-await turso.batch(objects.filter((o) => o.type !== 'table').map((o) => o.sql), 'write');
+const otherSql = objects.filter((o) => o.type !== 'table').map((o) => o.sql);
+if (otherSql.length) await turso.batch(otherSql, 'write');
 
 let mismatches = 0;
 for (const t of ordered) {
