@@ -277,6 +277,19 @@ body {
     min-height: 0 !important;
     overflow: hidden !important;
   }
+  body.printing-statement .statement-fullscreen {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+    background: white !important;
+  }
+  body.printing-statement .statement-fullscreen-body {
+    padding: 0 !important;
+    height: 100% !important;
+  }
   .statement-sheet {
     color: #000 !important;
     font-size: 9pt !important;
@@ -459,9 +472,19 @@ body {
   display: none;
 }
 
-/* كشف الحساب: يملأ الحاوية الظاهرة في شاشة واحدة */
+/* كشف الحساب: صفحة كاملة + ملاءمة الحاوية */
+.statement-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+.statement-fullscreen-body,
+.statement-fullscreen-body .statement-fit-host {
+  height: 100%;
+}
 .statement-fit-host {
   width: 100%;
+  height: 100%;
 }
 .statement-sheet--light .statement-table {
   table-layout: fixed;

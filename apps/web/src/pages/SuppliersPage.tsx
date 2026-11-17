@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ArrowDownCircle, ArrowUpCircle, FileText, Hash, MapPin, Pencil, Phone, Plus, Printer, Trash2, Truck, Wallet, Warehouse } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { downloadExcelBuffer } from '../lib/docExport';
@@ -10,7 +11,6 @@ import { useConfirm, useToast } from '../lib/feedback';
 import { useAccess } from '../lib/auth';
 import { FilterOption, IconAction, ListBar } from '../components/ListBar';
 import { WarehouseMultiSelect } from '../components/WarehouseMultiSelect';
-import { StatementLedger } from '../components/StatementLedger';
 import {
   Badge, Button, Card, Empty, Field, Input, Label, Modal, PageHeader, Pager, StatCard, StatGrid, Table, Td, Th,
 } from '../components/ui';
@@ -26,14 +26,6 @@ type Supplier = {
   warehouses?: { warehouseId: string; warehouse?: { id: string; name: string } }[];
 };
 
-type StatementPayload = {
-  supplier: Supplier;
-  statement: import('../components/StatementLedger').LedgerRow[];
-  balance: number;
-  totals?: { debit: number; credit: number; balance: number };
-  prepaid?: number;
-  meaning?: string;
-};
 
 type SupplierForm = { code: string; name: string; phone: string; address: string; isActive: boolean; warehouseIds: string[] };
 
@@ -41,6 +33,7 @@ const emptySupplier: SupplierForm = { code: '', name: '', phone: '', address: ''
 const SUPPLIER_VIEW = 'm5azen.suppliersView';
 
 export function SuppliersPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const confirm = useConfirm();
   const canDelete = useAccess().can('suppliers', 'delete');
@@ -55,8 +48,6 @@ export function SuppliersPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [stmtOpen, setStmtOpen] = useState(false);
-  const [statement, setStatement] = useState<StatementPayload | null>(null);
   const [form, setForm] = useState<SupplierForm>(emptySupplier);
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([]);
   const [dueDates, setDueDates] = useState<Record<string, string>>({});
@@ -180,10 +171,8 @@ export function SuppliersPage() {
     }
   }
 
-  async function showStatement(id: string) {
-    const data = await api<StatementPayload>(`/suppliers/${id}/statement`);
-    setStatement(data);
-    setStmtOpen(true);
+  function showStatement(id: string) {
+    navigate(`/statements/view/supplier/${id}?from=/suppliers`);
   }
 
   async function exportRows() {
@@ -351,26 +340,6 @@ export function SuppliersPage() {
         </div>
       </Modal>
 
-      <Modal open={stmtOpen} onClose={() => setStmtOpen(false)} title={`كشف حساب — ${statement?.supplier.name || ''}`} xl>
-        {statement && (
-          <div className="h-full min-h-0 overflow-hidden">
-            <StatementLedger
-              data={{
-                title: `كشف حساب مورد: ${statement.supplier.name}`,
-                partyName: statement.supplier.name,
-                partyCode: statement.supplier.code,
-                partyKind: 'supplier',
-                balance: statement.balance,
-                meaning: statement.meaning,
-                prepaid: statement.prepaid,
-                totals: statement.totals,
-                statement: statement.statement,
-                fileName: `كشف-مورد-${statement.supplier.code}.xlsx`,
-              }}
-            />
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

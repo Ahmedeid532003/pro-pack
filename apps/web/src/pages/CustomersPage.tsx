@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CircleDollarSign, FileSignature, FileText, Hash, MapPin, Pencil, Phone, Plus, Printer, Trash2, Users, Wallet, Warehouse } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
 import { downloadExcelBuffer, exportInvoiceExcel } from '../lib/docExport';
@@ -11,10 +12,7 @@ import { useFeedback } from '../lib/feedback';
 import { useAccess } from '../lib/auth';
 import { useColumns } from '../lib/columns';
 import { FilterOption, IconAction, ListBar } from '../components/ListBar';
-import { NotesPanel } from '../components/NotesPanel';
-import { EntityWorkspace } from '../components/EntityWorkspace';
 import { WarehouseMultiSelect } from '../components/WarehouseMultiSelect';
-import { StatementLedger } from '../components/StatementLedger';
 import {
   Badge, Button, Card, Empty, Field, Input, Label, Modal, NumberInput, PageHeader, Pager, PrintHeader, Select, StatCard, StatGrid, Table, Td, Th, todayIso,
 } from '../components/ui';
@@ -65,16 +63,8 @@ function FillIn({ value }: { value?: string | number | null }) {
 }
 const CUSTOMER_VIEW = 'm5azen.customersView';
 
-type StatementPayload = {
-  customer: Customer;
-  statement: import('../components/StatementLedger').LedgerRow[];
-  balance: number;
-  totals?: { debit: number; credit: number; balance: number };
-  prepaid?: number;
-  meaning?: string;
-};
-
 export function CustomersPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<'customers' | 'contracts'>('customers');
   const [items, setItems] = useState<Customer[]>([]);
   const [listPage, setListPage] = useState(1);
@@ -87,8 +77,6 @@ export function CustomersPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [stmtOpen, setStmtOpen] = useState(false);
-  const [statement, setStatement] = useState<StatementPayload | null>(null);
   const [form, setForm] = useState<CustomerForm>(emptyCustomer);
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -152,9 +140,9 @@ export function CustomersPage() {
   }, [listPage, pageSize, search, listView]);
 
   useEffect(() => {
-    const open = new URLSearchParams(window.location.search).get('open');
-    if (open) showStatement(open);
-  }, []);
+    const openId = new URLSearchParams(window.location.search).get('open');
+    if (openId) navigate(`/statements/view/customer/${openId}?from=/customers`, { replace: true });
+  }, [navigate]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const pageFrom = total === 0 ? 0 : (Math.min(listPage, pageCount) - 1) * pageSize + 1;
@@ -237,10 +225,8 @@ export function CustomersPage() {
     URL.revokeObjectURL(link.href);
   }
 
-  async function showStatement(id: string) {
-    const data = await api<StatementPayload>(`/customers/${id}/statement`);
-    setStatement(data);
-    setStmtOpen(true);
+  function showStatement(id: string) {
+    navigate(`/statements/view/customer/${id}?from=/customers`);
   }
 
   async function loadContracts() {
@@ -632,33 +618,6 @@ export function CustomersPage() {
           )}
           <Button className="w-full" disabled={saving || !!formErrors.code || !!formErrors.name} onClick={save}>{editingId ? 'حفظ التعديلات' : 'حفظ العميل'}</Button>
         </div>
-      </Modal>
-
-      <Modal open={stmtOpen} onClose={() => setStmtOpen(false)} title={`كشف حساب — ${statement?.customer.name || ''}`} xl>
-        {statement && (
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <StatementLedger
-                data={{
-                  title: `كشف حساب عميل: ${statement.customer.name}`,
-                  partyName: statement.customer.name,
-                  partyCode: statement.customer.code,
-                  partyKind: 'customer',
-                  balance: statement.balance,
-                  meaning: statement.meaning,
-                  prepaid: statement.prepaid,
-                  totals: statement.totals,
-                  statement: statement.statement,
-                  fileName: `كشف-${statement.customer.code}.xlsx`,
-                }}
-              />
-            </div>
-            <div className="mt-2 shrink-0 no-print max-h-28 overflow-y-auto border-t border-slate-100 pt-2">
-              <NotesPanel entityType="customer" entityId={statement.customer.id} />
-              <EntityWorkspace entityType="customer" entityId={statement.customer.id} />
-            </div>
-          </div>
-        )}
       </Modal>
 
       <Modal open={contractOpen} onClose={() => setContractOpen(false)} title="تعاقد جديد">

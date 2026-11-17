@@ -27,16 +27,19 @@ const FinancePage = lazy(() => import('./pages/FinancePage').then((m) => ({ defa
 const HrPage = lazy(() => import('./pages/HrPage').then((m) => ({ default: m.HrPage })));
 const PartnersPage = lazy(() => import('./pages/PartnersPage').then((m) => ({ default: m.PartnersPage })));
 const StatementsPage = lazy(() => import('./pages/StatementsPage').then((m) => ({ default: m.StatementsPage })));
+const StatementDetailPage = lazy(() => import('./pages/StatementDetailPage').then((m) => ({ default: m.StatementDetailPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const InsightsPage = lazy(() => import('./pages/InsightsPage').then((m) => ({ default: m.InsightsPage })));
 const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
 const ReportBuilderPage = lazy(() => import('./pages/ReportBuilderPage').then((m) => ({ default: m.ReportBuilderPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })));
 
-function PageGuard({ page, children }: { page: string; children: React.ReactNode }) {
+function PageGuard({ page, children, anyOf }: { page: string; children: React.ReactNode; anyOf?: string[] }) {
   const { user } = useAuth();
-  if (user?.access && !user.access[page]?.view) {
-    const next = NAV_ITEMS.find((item) => user.access?.[item.page]?.view);
+  const pages = anyOf?.length ? anyOf : [page];
+  const allowed = !user?.access || pages.some((p) => user.access?.[p]?.view);
+  if (!allowed) {
+    const next = NAV_ITEMS.find((item) => user?.access?.[item.page]?.view);
     return <Navigate to={next?.to || '/login'} replace />;
   }
   return <>{children}</>;
@@ -81,6 +84,7 @@ export default function App() {
           <Route path="hr" element={<PageGuard page="hr"><HrPage /></PageGuard>} />
           <Route path="partners" element={<PageGuard page="partners"><PartnersPage /></PageGuard>} />
           <Route path="statements" element={<PageGuard page="statements"><StatementsPage /></PageGuard>} />
+          <Route path="statements/view/:kind/:id" element={<PageGuard page="statements" anyOf={['statements', 'customers', 'suppliers']}><StatementDetailPage /></PageGuard>} />
           <Route path="reports" element={<PageGuard page="reports"><ReportsPage /></PageGuard>} />
           <Route path="analytics" element={<PageGuard page="analytics"><AnalyticsPage /></PageGuard>} />
           <Route path="insights" element={<PageGuard page="insights"><InsightsPage /></PageGuard>} />

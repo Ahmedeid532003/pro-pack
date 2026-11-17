@@ -75,12 +75,43 @@ export class ReportsService {
     };
     const invoices = await this.prisma.salesInvoice.findMany({
       where,
-      include: { customer: true, warehouse: true },
+      include: {
+        customer: true,
+        warehouse: true,
+        lines: { include: { product: { select: { sku: true, name: true, unit: true } } } },
+        receipts: { select: { number: true, amount: true, receivedAt: true, paymentMethod: true } },
+      },
       orderBy: { invoiceDate: 'desc' },
     });
     const total = invoices.reduce((s, i) => s + i.total, 0);
     const paid = invoices.reduce((s, i) => s + i.paidAmount, 0);
-    return { invoices, total, paid, count: invoices.length };
+    const due = Math.max(0, total - paid);
+    const byCustomer = new Map<string, { name: string; total: number; paid: number; count: number }>();
+    const byProduct = new Map<string, { sku: string; name: string; qty: number; amount: number }>();
+    for (const inv of invoices) {
+      const c = byCustomer.get(inv.customerId) || { name: inv.customer.name, total: 0, paid: 0, count: 0 };
+      c.total += inv.total;
+      c.paid += inv.paidAmount;
+      c.count += 1;
+      byCustomer.set(inv.customerId, c);
+      for (const line of inv.lines) {
+        const key = line.productId;
+        const row = byProduct.get(key) || { sku: line.product.sku, name: line.product.name, qty: 0, amount: 0 };
+        row.qty += line.quantity;
+        row.amount += line.total;
+        byProduct.set(key, row);
+      }
+    }
+    return {
+      invoices,
+      total,
+      paid,
+      due,
+      count: invoices.length,
+      byCustomer: [...byCustomer.values()].sort((a, b) => b.total - a.total),
+      byProduct: [...byProduct.values()].sort((a, b) => b.amount - a.amount),
+      lineCount: invoices.reduce((s, i) => s + i.lines.length, 0),
+    };
   }
 
   async purchasesSummary(from?: string, to?: string, warehouseIds?: string[]) {
@@ -92,12 +123,166 @@ export class ReportsService {
     };
     const invoices = await this.prisma.purchaseInvoice.findMany({
       where,
-      include: { supplier: true, warehouse: true },
+      include: {
+        supplier: true,
+        warehouse: true,
+        lines: { include: { product: { select: { sku: true, name: true, unit: true } } } },
+        payments: { select: { number: true, amount: true, paidAt: true, paymentMethod: true } },
+      },
       orderBy: { invoiceDate: 'desc' },
     });
     const total = invoices.reduce((s, i) => s + i.total, 0);
     const paid = invoices.reduce((s, i) => s + i.paidAmount, 0);
-    return { invoices, total, paid, count: invoices.length };
+    const due = Math.max(0, total - paid);
+    const bySupplier = new Map<string, { name: string; total: number; paid: number; count: number }>();
+    const byProduct = new Map<string, { sku: string; name: string; qty: number; amount: number }>();
+    for (const inv of invoices) {
+      const sRow = bySupplier.get(inv.supplierId) || { name: inv.supplier.name, total: 0, paid: 0, count: 0 };
+      sRow.total += inv.total;
+      sRow.paid += inv.paidAmount;
+      sRow.count += 1;
+      bySupplier.set(inv.supplierId, sRow);
+      for (const line of inv.lines) {
+        const key = line.productId;
+        const row = byProduct.get(key) || { sku: line.product.sku, name: line.product.name, qty: 0, amount: 0 };
+        row.qty += line.quantity;
+        row.amount += line.total;
+        byProduct.set(key, row);
+      }
+    }
+    return {
+      invoices,
+      total,
+      paid,
+      due,
+      count: invoices.length,
+      bySupplier: [...bySupplier.values()].sort((a, b) => b.total - a.total),
+      byProduct: [...byProduct.values()].sort((a, b) => b.amount - a.amount),
+      lineCount: invoices.reduce((s, i) => s + i.lines.length, 0),
+    };
+  }
+
+  async overview(from?: string, to?: string, warehouseIds?: string[]) {
+    const [sales, purchases, profit, cash, customers, suppliers, finance, hr, production, inventory] = await Promise.all([
+      this.salesSummary(from, to, warehouseIds),
+      this.purchasesSummary(from, to, warehouseIds),
+      this.profit(from, to, warehouseIds),
+      this.cashReport(from, to, warehouseIds),
+      this.customersReport(),
+      this.suppliersReport(),
+      this.financeReport(from, to),
+      this.hrReport(from, to),
+      this.productionReport(from, to, warehouseIds),
+      this.inventory(warehouseIds),
+    ]);
+    const stockQty = inventory.reduce((s, r) => s + r.quantity, 0);
+    const stockValue = inventory.reduce((s, r) => s + r.quantity * (r.product.costPrice || 0), 0);
+    return {
+      period: { from: from || null, to: to || null },
+      sales: { total: sales.total, paid: sales.paid, due: sales.due, count: sales.count, lineCount: sales.lineCount },
+      purchases: { total: purchases.total, paid: purchases.paid, due: purchases.due, count: purchases.count, lineCount: purchases.lineCount },
+      profit: {
+        revenue: profit.revenue,
+        cogs: profit.cogs,
+        expenses: profit.expenses,
+        incomes: profit.incomes,
+        netProfit: profit.netProfit,
+        lineCount: profit.lines?.length || 0,
+      },
+      cash: { totalIn: cash.totalIn, totalOut: cash.totalOut, net: cash.net, txCount: cash.transactions.length },
+      parties: {
+        customers: customers.count,
+        customerDue: customers.totalDue,
+        suppliers: suppliers.count,
+        supplierDue: suppliers.totalDue,
+      },
+      finance: {
+        incomes: finance.incomeTotal,
+        expenses: finance.expenseTotal,
+        net: finance.net,
+        transfers: finance.transferTotal,
+        pendingChecks: finance.pendingChecks,
+      },
+      hr: {
+        employees: hr.employeeCount,
+        salaryTotal: hr.salaryTotal,
+        attendance: hr.attendanceCount,
+        leaves: hr.leaveCount,
+      },
+      production: {
+        orders: production.orderCount,
+        jobs: production.jobCount,
+        totalCost: production.totalCost,
+      },
+      inventory: { rows: inventory.length, qty: stockQty, value: stockValue },
+    };
+  }
+
+  async returnsReport(from?: string, to?: string, warehouseIds?: string[]) {
+    const range = this.dayRange(from, to);
+    const wh = warehouseIds?.length ? { warehouseId: { in: warehouseIds } } : {};
+    const [salesReturns, purchaseReturns] = await Promise.all([
+      this.prisma.salesReturn.findMany({
+        where: { ...wh, ...(range ? { returnDate: range } : {}) },
+        include: {
+          customer: true,
+          warehouse: true,
+          salesInvoice: { select: { number: true } },
+          lines: { include: { product: { select: { sku: true, name: true } } } },
+        },
+        orderBy: { returnDate: 'desc' },
+      }),
+      this.prisma.purchaseReturn.findMany({
+        where: { ...wh, ...(range ? { returnDate: range } : {}) },
+        include: {
+          supplier: true,
+          warehouse: true,
+          purchaseInvoice: { select: { number: true } },
+          lines: { include: { product: { select: { sku: true, name: true } } } },
+        },
+        orderBy: { returnDate: 'desc' },
+      }),
+    ]);
+    const salesTotal = salesReturns.reduce((s, r) => s + r.total, 0);
+    const purchaseTotal = purchaseReturns.reduce((s, r) => s + r.total, 0);
+    return {
+      salesReturns,
+      purchaseReturns,
+      salesTotal,
+      purchaseTotal,
+      salesCount: salesReturns.length,
+      purchaseCount: purchaseReturns.length,
+      salesLineCount: salesReturns.reduce((s, r) => s + r.lines.length, 0),
+      purchaseLineCount: purchaseReturns.reduce((s, r) => s + r.lines.length, 0),
+    };
+  }
+
+  async movementsReport(from?: string, to?: string, warehouseIds?: string[]) {
+    const createdAt = this.dayRange(from, to);
+    const movements = await this.prisma.stockMovement.findMany({
+      where: {
+        ...(warehouseIds?.length ? { warehouseId: { in: warehouseIds } } : {}),
+        ...(createdAt ? { createdAt } : {}),
+      },
+      include: {
+        product: { select: { sku: true, name: true, unit: true } },
+        warehouse: { select: { code: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    });
+    const byType = new Map<string, { count: number; qty: number }>();
+    for (const m of movements) {
+      const row = byType.get(m.type) || { count: 0, qty: 0 };
+      row.count += 1;
+      row.qty += m.quantity;
+      byType.set(m.type, row);
+    }
+    return {
+      movements,
+      count: movements.length,
+      byType: [...byType.entries()].map(([type, v]) => ({ type, ...v })).sort((a, b) => b.count - a.count),
+    };
   }
 
   async profit(from?: string, to?: string, warehouseIds?: string[]) {

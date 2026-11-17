@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Boxes, ClipboardCheck, Coins, Download, Factory, FileSpreadsheet, Package, PackageX, Percent, Printer, ShoppingCart,
   TrendingDown, TrendingUp, Truck, Users, Wallet,
@@ -191,18 +191,58 @@ type InventoryRow = {
   warehouse: { name: string };
 };
 
+type InvoiceLine = {
+  productId: string;
+  quantity: number;
+  unitPrice?: number;
+  unitCost?: number;
+  total: number;
+  product: { sku: string; name: string; unit?: string };
+};
+
 type SalesReport = {
-  invoices: { number: string; total: number; discount: number; paidAmount: number; status: string; invoiceDate: string; customer: { name: string }; warehouse: { name: string } }[];
+  invoices: {
+    id?: string;
+    number: string;
+    total: number;
+    discount: number;
+    paidAmount: number;
+    status: string;
+    invoiceDate: string;
+    customer: { name: string };
+    warehouse: { name: string };
+    lines?: InvoiceLine[];
+    receipts?: { number: string; amount: number; receivedAt: string }[];
+  }[];
   total: number;
   paid: number;
+  due?: number;
   count: number;
+  lineCount?: number;
+  byCustomer?: { name: string; total: number; paid: number; count: number }[];
+  byProduct?: { sku: string; name: string; qty: number; amount: number }[];
 };
 
 type PurchasesReport = {
-  invoices: { number: string; total: number; paidAmount: number; status: string; invoiceDate: string; supplier: { name: string }; warehouse: { name: string } }[];
+  invoices: {
+    id?: string;
+    number: string;
+    total: number;
+    paidAmount: number;
+    status: string;
+    invoiceDate: string;
+    supplier: { name: string };
+    warehouse: { name: string };
+    lines?: InvoiceLine[];
+    payments?: { number: string; amount: number; paidAt: string }[];
+  }[];
   total: number;
   paid: number;
+  due?: number;
   count: number;
+  lineCount?: number;
+  bySupplier?: { name: string; total: number; paid: number; count: number }[];
+  byProduct?: { sku: string; name: string; qty: number; amount: number }[];
 };
 
 type Profit = {
@@ -269,8 +309,37 @@ type ProductInsights = {
   unsoldValue: number;
 };
 
-type ReportTab = 'inventory' | 'count' | 'sales' | 'purchases' | 'profit' | 'cash' | 'products' | 'customers' | 'suppliers' | 'finance' | 'hr' | 'production';
+type ReportTab = 'overview' | 'inventory' | 'count' | 'sales' | 'purchases' | 'returns' | 'movements' | 'profit' | 'cash' | 'products' | 'customers' | 'suppliers' | 'finance' | 'hr' | 'production';
 type AppliedFilter = { all: boolean; ids: string[]; from: string; to: string };
+
+type OverviewReport = {
+  sales: { total: number; paid: number; due: number; count: number; lineCount: number };
+  purchases: { total: number; paid: number; due: number; count: number; lineCount: number };
+  profit: { revenue: number; cogs: number; expenses: number; incomes: number; netProfit: number; lineCount: number };
+  cash: { totalIn: number; totalOut: number; net: number; txCount: number };
+  parties: { customers: number; customerDue: number; suppliers: number; supplierDue: number };
+  finance: { incomes: number; expenses: number; net: number; transfers: number; pendingChecks: number };
+  hr: { employees: number; salaryTotal: number; attendance: number; leaves: number };
+  production: { orders: number; jobs: number; totalCost: number };
+  inventory: { rows: number; qty: number; value: number };
+};
+
+type ReturnsReport = {
+  salesReturns: { id: string; number: string; total: number; returnDate: string; customer: { name: string }; warehouse: { name: string }; salesInvoice?: { number: string } | null; lines: InvoiceLine[] }[];
+  purchaseReturns: { id: string; number: string; total: number; returnDate: string; supplier: { name: string }; warehouse: { name: string }; purchaseInvoice?: { number: string } | null; lines: InvoiceLine[] }[];
+  salesTotal: number;
+  purchaseTotal: number;
+  salesCount: number;
+  purchaseCount: number;
+  salesLineCount: number;
+  purchaseLineCount: number;
+};
+
+type MovementsReport = {
+  movements: { id: string; type: string; quantity: number; createdAt: string; reference?: string | null; note?: string | null; product: { sku: string; name: string; unit: string }; warehouse: { code: string; name: string } }[];
+  count: number;
+  byType: { type: string; count: number; qty: number }[];
+};
 
 type CountSheet = {
   rows: {
@@ -334,10 +403,13 @@ type ProductionReport = {
 const NO_DATES: ReportTab[] = ['inventory', 'count', 'customers', 'suppliers'];
 
 const TAB_LABEL: Record<ReportTab, string> = {
+  overview: 'شامل النظام',
   inventory: 'المخزون',
   count: 'بيان جرد',
   sales: 'المبيعات',
   purchases: 'المشتريات',
+  returns: 'المرتجعات',
+  movements: 'حركات المخزن',
   profit: 'الأرباح',
   products: 'المنتجات',
   cash: 'الخزنة',
@@ -349,7 +421,7 @@ const TAB_LABEL: Record<ReportTab, string> = {
 };
 
 export function ReportsPage() {
-  const [tab, setTab] = useState<ReportTab>('inventory');
+  const [tab, setTab] = useState<ReportTab>('overview');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
@@ -363,6 +435,10 @@ export function ReportsPage() {
   const [financeReport, setFinanceReport] = useState<FinanceReport | null>(null);
   const [hrReport, setHrReport] = useState<HrReport | null>(null);
   const [productionReport, setProductionReport] = useState<ProductionReport | null>(null);
+  const [overview, setOverview] = useState<OverviewReport | null>(null);
+  const [returnsReport, setReturnsReport] = useState<ReturnsReport | null>(null);
+  const [movementsReport, setMovementsReport] = useState<MovementsReport | null>(null);
+  const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
   const [allWarehouses, setAllWarehouses] = useState(false);
@@ -412,7 +488,9 @@ export function ReportsPage() {
   async function load(next = applied, nextTab = tab) {
     if (!next) return;
     const suffix = queryFor(next, !NO_DATES.includes(nextTab));
-    if (nextTab === 'inventory') {
+    if (nextTab === 'overview') {
+      setOverview(await api<OverviewReport>(`/reports/overview${suffix}`));
+    } else if (nextTab === 'inventory') {
       setInventory(await api<InventoryRow[]>(`/reports/inventory${suffix}`));
     } else if (nextTab === 'count') {
       setCountSheet(await api<CountSheet>(`/reports/count-sheet${suffix}`));
@@ -420,6 +498,10 @@ export function ReportsPage() {
       setSales(await api<SalesReport>(`/reports/sales${suffix}`));
     } else if (nextTab === 'purchases') {
       setPurchases(await api<PurchasesReport>(`/reports/purchases${suffix}`));
+    } else if (nextTab === 'returns') {
+      setReturnsReport(await api<ReturnsReport>(`/reports/returns${suffix}`));
+    } else if (nextTab === 'movements') {
+      setMovementsReport(await api<MovementsReport>(`/reports/movements${suffix}`));
     } else if (nextTab === 'profit') {
       setProfit(await api<Profit>(`/reports/profit${suffix}`));
     } else if (nextTab === 'cash') {
@@ -696,10 +778,13 @@ export function ReportsPage() {
 
       <div className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm no-print">
         {([
+          ['overview', 'شامل النظام', FileSpreadsheet],
           ['inventory', 'المخزون', Boxes],
           ['count', 'بيان جرد', ClipboardCheck],
           ['sales', 'المبيعات', ShoppingCart],
           ['purchases', 'المشتريات', Truck],
+          ['returns', 'المرتجعات', PackageX],
+          ['movements', 'حركات المخزن', ArrowLeftRight],
           ['products', 'المنتجات', Package],
           ['profit', 'الأرباح', TrendingUp],
           ['cash', 'الخزنة', Wallet],
@@ -879,50 +964,165 @@ export function ReportsPage() {
         </Card>
       )}
 
+      {applied && tab === 'overview' && overview && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="صافي الربح" value={formatMoney(overview.profit.netProfit)} hint={`إيراد ${formatMoney(overview.profit.revenue)}`} icon={TrendingUp} tone={overview.profit.netProfit >= 0 ? 'emerald' : 'rose'} onClick={() => setTab('profit')} />
+            <StatCard label="المبيعات" value={formatMoney(overview.sales.total)} hint={`${overview.sales.count} فاتورة · ${overview.sales.lineCount} بند`} icon={ShoppingCart} tone="emerald" onClick={() => setTab('sales')} />
+            <StatCard label="المشتريات" value={formatMoney(overview.purchases.total)} hint={`${overview.purchases.count} فاتورة · ${overview.purchases.lineCount} بند`} icon={Truck} tone="sky" onClick={() => setTab('purchases')} />
+            <StatCard label="صافي الخزنة" value={formatMoney(overview.cash.net)} hint={`${overview.cash.txCount} حركة`} icon={Wallet} tone="brand" onClick={() => setTab('cash')} />
+          </StatGrid>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="تفاصيل مالية شاملة" subtitle="واردات · مصروفات · مستحقات" icon={Coins} />
+              <Table>
+                <tbody>
+                  <tr><Td>واردات مالية</Td><Td className="font-extrabold text-emerald-700">{formatMoney(overview.finance.incomes)}</Td></tr>
+                  <tr><Td>مصروفات</Td><Td className="font-extrabold text-rose-600">{formatMoney(overview.finance.expenses)}</Td></tr>
+                  <tr><Td>تحويلات خزنة</Td><Td className="font-extrabold">{formatMoney(overview.finance.transfers)}</Td></tr>
+                  <tr><Td>شيكات معلقة</Td><Td className="font-extrabold text-amber-700">{overview.finance.pendingChecks}</Td></tr>
+                  <tr><Td>مستحق على العملاء</Td><Td className="font-extrabold text-rose-600">{formatMoney(overview.parties.customerDue)}</Td></tr>
+                  <tr><Td>مستحق للموردين</Td><Td className="font-extrabold text-rose-600">{formatMoney(overview.parties.supplierDue)}</Td></tr>
+                </tbody>
+              </Table>
+            </Card>
+            <Card>
+              <CardHeader title="تشغيل ومخزون وموارد" subtitle="صورة شاملة لكل أجزاء السيستم" icon={Boxes} />
+              <Table>
+                <tbody>
+                  <tr><Td>أصناف بالمخزون</Td><Td className="font-extrabold">{overview.inventory.rows} · كمية {overview.inventory.qty.toLocaleString('ar-EG')}</Td></tr>
+                  <tr><Td>قيمة المخزون (تكلفة)</Td><Td className="font-extrabold">{formatMoney(overview.inventory.value)}</Td></tr>
+                  <tr><Td>عملاء / موردين</Td><Td className="font-extrabold">{overview.parties.customers} / {overview.parties.suppliers}</Td></tr>
+                  <tr><Td>موظفين · حضور · إجازات</Td><Td className="font-extrabold">{overview.hr.employees} · {overview.hr.attendance} · {overview.hr.leaves}</Td></tr>
+                  <tr><Td>مرتبات أساسية</Td><Td className="font-extrabold">{formatMoney(overview.hr.salaryTotal)}</Td></tr>
+                  <tr><Td>تصنيع (أوامر / مراحل)</Td><Td className="font-extrabold">{overview.production.orders} / {overview.production.jobs} · {formatMoney(overview.production.totalCost)}</Td></tr>
+                </tbody>
+              </Table>
+            </Card>
+          </div>
+          <p className="text-sm font-bold text-slate-600">اضغط أي كارت للانتقال لتقريره التفصيلي.</p>
+        </div>
+      )}
+
       {applied && tab === 'sales' && sales && (
         <>
         <StatGrid>
           <StatCard label="إجمالي المبيعات" value={formatMoney(sales.total)} icon={ShoppingCart} tone="emerald" />
-          <StatCard label="المحصل" value={formatMoney(sales.paid)} hint={sales.total > 0 ? `${((sales.paid / sales.total) * 100).toFixed(0)}% من الإجمالي` : undefined} icon={Wallet} tone="sky" />
-          <StatCard label="المتبقي على العملاء" value={formatMoney(Math.max(0, sales.total - sales.paid))} icon={Coins} tone="rose" />
-          <StatCard label="عدد الفواتير" value={sales.count} hint={sales.count ? `متوسط ${formatMoney(sales.total / sales.count)}` : undefined} icon={FileSpreadsheet} tone="amber" />
+          <StatCard label="المحصل" value={formatMoney(sales.paid)} hint={sales.total > 0 ? `${((sales.paid / sales.total) * 100).toFixed(0)}%` : undefined} icon={Wallet} tone="sky" />
+          <StatCard label="المتبقي" value={formatMoney(sales.due ?? Math.max(0, sales.total - sales.paid))} icon={Coins} tone="rose" />
+          <StatCard label="فواتير / بنود" value={`${sales.count} / ${sales.lineCount || 0}`} hint={sales.count ? `متوسط ${formatMoney(sales.total / sales.count)}` : undefined} icon={FileSpreadsheet} tone="amber" />
         </StatGrid>
+        <div className="mb-4 grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader title="تفصيل حسب العميل" subtitle={`${sales.byCustomer?.length || 0} عميل`} icon={Users} />
+            <Table>
+              <thead><tr><Th>العميل</Th><Th>فواتير</Th><Th>إجمالي</Th><Th>مدفوع</Th></tr></thead>
+              <tbody>
+                {(sales.byCustomer || []).slice(0, 30).map((row) => (
+                  <tr key={row.name}>
+                    <Td className="font-bold">{row.name}</Td>
+                    <Td>{row.count}</Td>
+                    <Td className="font-extrabold">{formatMoney(row.total)}</Td>
+                    <Td className="text-emerald-700">{formatMoney(row.paid)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+          <Card>
+            <CardHeader title="تفصيل حسب الصنف" subtitle={`${sales.byProduct?.length || 0} صنف`} icon={Package} />
+            <Table>
+              <thead><tr><Th>الكود</Th><Th>الصنف</Th><Th>كمية</Th><Th>مبلغ</Th></tr></thead>
+              <tbody>
+                {(sales.byProduct || []).slice(0, 30).map((row) => (
+                  <tr key={row.sku}>
+                    <Td className="font-mono text-xs" dir="ltr">{row.sku}</Td>
+                    <Td className="font-bold">{row.name}</Td>
+                    <Td>{row.qty}</Td>
+                    <Td className="font-extrabold">{formatMoney(row.amount)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+        </div>
         <Card>
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm no-print">
-            <span className="text-xs font-bold text-slate-500">الأعمدة:</span>
-            {([['customer', 'العميل'], ['date', 'التاريخ'], ['total', 'الإجمالي'], ['status', 'الحالة']] as const).map(([key, label]) => (
-              <label key={key} className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${salesCols[key] ? 'border-brand-200 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-500'}`}>
-                <input type="checkbox" className="accent-[var(--color-brand-700)]" checked={salesCols[key]} onChange={(e) => setSalesCols({ ...salesCols, [key]: e.target.checked })} />
-                {label}
-              </label>
-            ))}
-          </div>
+          <CardHeader title="فواتير المبيعات بالتفصيل" subtitle="اضغط فاتورة لعرض البنود والتحصيلات" icon={ShoppingCart} />
           <Table>
             <thead>
               <tr>
+                <Th></Th>
                 <Th>الرقم</Th>
                 <Th>المخزن</Th>
-                {salesCols.customer && <Th>العميل</Th>}
-                {salesCols.date && <Th>التاريخ</Th>}
-                <Th>الخصم</Th>
-                {salesCols.total && <Th>الإجمالي</Th>}
+                <Th>العميل</Th>
+                <Th>التاريخ</Th>
+                <Th>بنود</Th>
+                <Th>الإجمالي</Th>
                 <Th>المتبقي</Th>
-                {salesCols.status && <Th>الحالة</Th>}
+                <Th>الحالة</Th>
               </tr>
             </thead>
             <tbody>
-              {sales.invoices.map((i) => (
-                <tr key={i.number} className={`status-${i.status}`}>
-                  <Td><span className="font-mono text-xs font-bold text-brand-700" dir="ltr">{i.number}</span></Td>
-                  <Td className="text-slate-600">{i.warehouse.name}</Td>
-                  {salesCols.customer && <Td className="font-semibold text-slate-800">{i.customer.name}</Td>}
-                  {salesCols.date && <Td className="whitespace-nowrap text-slate-500">{formatDate(i.invoiceDate)}</Td>}
-                  <Td className="whitespace-nowrap text-amber-700">{i.discount ? formatMoney(i.discount) : '—'}</Td>
-                  {salesCols.total && <Td className="whitespace-nowrap font-bold">{formatMoney(i.total)}</Td>}
-                  <Td>{i.status === 'CANCELLED' ? formatMoney(0) : <DueAmount date={i.invoiceDate} remaining={i.total - i.paidAmount} />}</Td>
-                  {salesCols.status && <Td><StatusBadge status={i.status} /></Td>}
-                </tr>
-              ))}
+              {sales.invoices.map((i) => {
+                const key = i.number;
+                const open = expandedInvoice === `s-${key}`;
+                return (
+                  <Fragment key={key}>
+                    <tr className={`status-${i.status} cursor-pointer`} onClick={() => setExpandedInvoice(open ? null : `s-${key}`)}>
+                      <Td className="text-slate-400">{open ? '▾' : '▸'}</Td>
+                      <Td><span className="font-mono text-xs font-bold text-brand-700" dir="ltr">{i.number}</span></Td>
+                      <Td className="text-slate-600">{i.warehouse.name}</Td>
+                      <Td className="font-semibold text-slate-800">{i.customer.name}</Td>
+                      <Td className="whitespace-nowrap text-slate-500">{formatDate(i.invoiceDate)}</Td>
+                      <Td>{i.lines?.length || 0}</Td>
+                      <Td className="whitespace-nowrap font-bold">{formatMoney(i.total)}</Td>
+                      <Td>{i.status === 'CANCELLED' ? formatMoney(0) : <DueAmount date={i.invoiceDate} remaining={i.total - i.paidAmount} />}</Td>
+                      <Td><StatusBadge status={i.status} /></Td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <Td colSpan={9} className="bg-slate-50">
+                          <div className="grid gap-3 p-2 lg:grid-cols-2">
+                            <div>
+                              <div className="mb-1 text-xs font-black text-slate-600">بنود الفاتورة</div>
+                              <Table>
+                                <thead><tr><Th>صنف</Th><Th>كمية</Th><Th>سعر</Th><Th>إجمالي</Th></tr></thead>
+                                <tbody>
+                                  {(i.lines || []).map((line, idx) => (
+                                    <tr key={idx}>
+                                      <Td className="font-bold">{line.product.name} <span className="font-mono text-[10px] text-slate-400" dir="ltr">{line.product.sku}</span></Td>
+                                      <Td>{line.quantity}</Td>
+                                      <Td>{formatMoney(line.unitPrice || 0)}</Td>
+                                      <Td className="font-extrabold">{formatMoney(line.total)}</Td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </Table>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-xs font-black text-slate-600">التحصيلات</div>
+                              {(i.receipts || []).length === 0 ? <Empty text="لا تحصيلات مربوطة" /> : (
+                                <Table>
+                                  <thead><tr><Th>رقم</Th><Th>تاريخ</Th><Th>مبلغ</Th></tr></thead>
+                                  <tbody>
+                                    {(i.receipts || []).map((r) => (
+                                      <tr key={r.number}>
+                                        <Td className="font-mono text-xs" dir="ltr">{r.number}</Td>
+                                        <Td>{formatDate(r.receivedAt)}</Td>
+                                        <Td className="font-extrabold text-emerald-700">{formatMoney(r.amount)}</Td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </Table>
+                              )}
+                            </div>
+                          </div>
+                        </Td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </Table>
         </Card>
@@ -933,50 +1133,199 @@ export function ReportsPage() {
         <>
         <StatGrid>
           <StatCard label="إجمالي المشتريات" value={formatMoney(purchases.total)} icon={Truck} tone="sky" />
-          <StatCard label="المدفوع للموردين" value={formatMoney(purchases.paid)} hint={purchases.total > 0 ? `${((purchases.paid / purchases.total) * 100).toFixed(0)}% من الإجمالي` : undefined} icon={Wallet} tone="emerald" />
-          <StatCard label="المتبقي للموردين" value={formatMoney(Math.max(0, purchases.total - purchases.paid))} icon={Coins} tone="rose" />
-          <StatCard label="عدد الفواتير" value={purchases.count} hint={purchases.count ? `متوسط ${formatMoney(purchases.total / purchases.count)}` : undefined} icon={FileSpreadsheet} tone="amber" />
+          <StatCard label="المدفوع" value={formatMoney(purchases.paid)} hint={purchases.total > 0 ? `${((purchases.paid / purchases.total) * 100).toFixed(0)}%` : undefined} icon={Wallet} tone="emerald" />
+          <StatCard label="المتبقي" value={formatMoney(purchases.due ?? Math.max(0, purchases.total - purchases.paid))} icon={Coins} tone="rose" />
+          <StatCard label="فواتير / بنود" value={`${purchases.count} / ${purchases.lineCount || 0}`} icon={FileSpreadsheet} tone="amber" />
         </StatGrid>
+        <div className="mb-4 grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader title="تفصيل حسب المورد" subtitle={`${purchases.bySupplier?.length || 0} مورد`} icon={Truck} />
+            <Table>
+              <thead><tr><Th>المورد</Th><Th>فواتير</Th><Th>إجمالي</Th><Th>مدفوع</Th></tr></thead>
+              <tbody>
+                {(purchases.bySupplier || []).slice(0, 30).map((row) => (
+                  <tr key={row.name}>
+                    <Td className="font-bold">{row.name}</Td>
+                    <Td>{row.count}</Td>
+                    <Td className="font-extrabold">{formatMoney(row.total)}</Td>
+                    <Td className="text-emerald-700">{formatMoney(row.paid)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+          <Card>
+            <CardHeader title="تفصيل حسب الصنف" subtitle={`${purchases.byProduct?.length || 0} صنف`} icon={Package} />
+            <Table>
+              <thead><tr><Th>الكود</Th><Th>الصنف</Th><Th>كمية</Th><Th>مبلغ</Th></tr></thead>
+              <tbody>
+                {(purchases.byProduct || []).slice(0, 30).map((row) => (
+                  <tr key={row.sku}>
+                    <Td className="font-mono text-xs" dir="ltr">{row.sku}</Td>
+                    <Td className="font-bold">{row.name}</Td>
+                    <Td>{row.qty}</Td>
+                    <Td className="font-extrabold">{formatMoney(row.amount)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+        </div>
         <Card>
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm no-print">
-            <span className="text-xs font-bold text-slate-500">الأعمدة:</span>
-            {([['supplier', 'المورد'], ['date', 'التاريخ'], ['total', 'الإجمالي'], ['status', 'الحالة']] as const).map(([key, label]) => (
-              <label key={key} className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${purchaseCols[key] ? 'border-brand-200 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-500'}`}>
-                <input type="checkbox" className="accent-[var(--color-brand-700)]" checked={purchaseCols[key]} onChange={(e) => setPurchaseCols({ ...purchaseCols, [key]: e.target.checked })} />
-                {label}
-              </label>
-            ))}
-          </div>
-          {purchases.invoices.length === 0 ? <Empty text="لا توجد فواتير شراء في المخازن والفترة دي" /> : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>الرقم</Th>
-                <Th>المخزن</Th>
-                {purchaseCols.supplier && <Th>المورد</Th>}
-                {purchaseCols.date && <Th>التاريخ</Th>}
-                {purchaseCols.total && <Th>الإجمالي</Th>}
-                <Th>المتبقي</Th>
-                {purchaseCols.status && <Th>الحالة</Th>}
-              </tr>
-            </thead>
-            <tbody>
-              {purchases.invoices.map((invoice) => (
-                <tr key={invoice.number} className={`status-${invoice.status}`}>
-                  <Td><span className="font-mono text-xs font-bold text-brand-700" dir="ltr">{invoice.number}</span></Td>
-                  <Td className="text-slate-600">{invoice.warehouse.name}</Td>
-                  {purchaseCols.supplier && <Td className="font-semibold text-slate-800">{invoice.supplier.name}</Td>}
-                  {purchaseCols.date && <Td className="whitespace-nowrap text-slate-500">{formatDate(invoice.invoiceDate)}</Td>}
-                  {purchaseCols.total && <Td className="whitespace-nowrap font-bold">{formatMoney(invoice.total)}</Td>}
-                  <Td>{invoice.status === 'CANCELLED' ? formatMoney(0) : <DueAmount date={invoice.invoiceDate} remaining={invoice.total - invoice.paidAmount} />}</Td>
-                  {purchaseCols.status && <Td><StatusBadge status={invoice.status} /></Td>}
+          <CardHeader title="فواتير الشراء بالتفصيل" subtitle="اضغط فاتورة لعرض البنود والسدادات" icon={Truck} />
+          {purchases.invoices.length === 0 ? <Empty text="لا توجد فواتير شراء" /> : (
+            <Table>
+              <thead>
+                <tr>
+                  <Th></Th><Th>الرقم</Th><Th>المخزن</Th><Th>المورد</Th><Th>التاريخ</Th><Th>بنود</Th><Th>الإجمالي</Th><Th>المتبقي</Th><Th>الحالة</Th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
+              </thead>
+              <tbody>
+                {purchases.invoices.map((invoice) => {
+                  const key = invoice.number;
+                  const open = expandedInvoice === `p-${key}`;
+                  return (
+                    <Fragment key={key}>
+                      <tr className={`status-${invoice.status} cursor-pointer`} onClick={() => setExpandedInvoice(open ? null : `p-${key}`)}>
+                        <Td className="text-slate-400">{open ? '▾' : '▸'}</Td>
+                        <Td><span className="font-mono text-xs font-bold text-brand-700" dir="ltr">{invoice.number}</span></Td>
+                        <Td className="text-slate-600">{invoice.warehouse.name}</Td>
+                        <Td className="font-semibold text-slate-800">{invoice.supplier.name}</Td>
+                        <Td className="whitespace-nowrap text-slate-500">{formatDate(invoice.invoiceDate)}</Td>
+                        <Td>{invoice.lines?.length || 0}</Td>
+                        <Td className="whitespace-nowrap font-bold">{formatMoney(invoice.total)}</Td>
+                        <Td>{invoice.status === 'CANCELLED' ? formatMoney(0) : <DueAmount date={invoice.invoiceDate} remaining={invoice.total - invoice.paidAmount} />}</Td>
+                        <Td><StatusBadge status={invoice.status} /></Td>
+                      </tr>
+                      {open && (
+                        <tr>
+                          <Td colSpan={9} className="bg-slate-50">
+                            <div className="grid gap-3 p-2 lg:grid-cols-2">
+                              <div>
+                                <div className="mb-1 text-xs font-black text-slate-600">بنود الفاتورة</div>
+                                <Table>
+                                  <thead><tr><Th>صنف</Th><Th>كمية</Th><Th>تكلفة</Th><Th>إجمالي</Th></tr></thead>
+                                  <tbody>
+                                    {(invoice.lines || []).map((line, idx) => (
+                                      <tr key={idx}>
+                                        <Td className="font-bold">{line.product.name}</Td>
+                                        <Td>{line.quantity}</Td>
+                                        <Td>{formatMoney(line.unitCost || line.unitPrice || 0)}</Td>
+                                        <Td className="font-extrabold">{formatMoney(line.total)}</Td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </Table>
+                              </div>
+                              <div>
+                                <div className="mb-1 text-xs font-black text-slate-600">السدادات</div>
+                                {(invoice.payments || []).length === 0 ? <Empty text="لا سدادات مربوطة" /> : (
+                                  <Table>
+                                    <thead><tr><Th>رقم</Th><Th>تاريخ</Th><Th>مبلغ</Th></tr></thead>
+                                    <tbody>
+                                      {(invoice.payments || []).map((p) => (
+                                        <tr key={p.number}>
+                                          <Td className="font-mono text-xs" dir="ltr">{p.number}</Td>
+                                          <Td>{formatDate(p.paidAt)}</Td>
+                                          <Td className="font-extrabold text-rose-600">{formatMoney(p.amount)}</Td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </Table>
+                                )}
+                              </div>
+                            </div>
+                          </Td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </Table>
           )}
         </Card>
         </>
+      )}
+
+      {applied && tab === 'returns' && returnsReport && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="مرتجع بيع" value={formatMoney(returnsReport.salesTotal)} hint={`${returnsReport.salesCount} إذن · ${returnsReport.salesLineCount} بند`} icon={ArrowDownLeft} tone="rose" />
+            <StatCard label="مرتجع شراء" value={formatMoney(returnsReport.purchaseTotal)} hint={`${returnsReport.purchaseCount} إذن · ${returnsReport.purchaseLineCount} بند`} icon={ArrowUpRight} tone="amber" />
+          </StatGrid>
+          <Card>
+            <CardHeader title="مرتجعات البيع بالتفصيل" icon={PackageX} />
+            <Table>
+              <thead><tr><Th>الرقم</Th><Th>العميل</Th><Th>المخزن</Th><Th>الفاتورة</Th><Th>التاريخ</Th><Th>بنود</Th><Th>الإجمالي</Th></tr></thead>
+              <tbody>
+                {returnsReport.salesReturns.map((r) => (
+                  <tr key={r.id}>
+                    <Td className="font-mono text-xs" dir="ltr">{r.number}</Td>
+                    <Td className="font-bold">{r.customer.name}</Td>
+                    <Td>{r.warehouse.name}</Td>
+                    <Td className="font-mono text-xs" dir="ltr">{r.salesInvoice?.number || '—'}</Td>
+                    <Td>{formatDate(r.returnDate)}</Td>
+                    <Td>{r.lines.length}</Td>
+                    <Td className="font-extrabold text-rose-600">{formatMoney(r.total)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+          <Card>
+            <CardHeader title="مرتجعات الشراء بالتفصيل" icon={Truck} />
+            <Table>
+              <thead><tr><Th>الرقم</Th><Th>المورد</Th><Th>المخزن</Th><Th>الفاتورة</Th><Th>التاريخ</Th><Th>بنود</Th><Th>الإجمالي</Th></tr></thead>
+              <tbody>
+                {returnsReport.purchaseReturns.map((r) => (
+                  <tr key={r.id}>
+                    <Td className="font-mono text-xs" dir="ltr">{r.number}</Td>
+                    <Td className="font-bold">{r.supplier.name}</Td>
+                    <Td>{r.warehouse.name}</Td>
+                    <Td className="font-mono text-xs" dir="ltr">{r.purchaseInvoice?.number || '—'}</Td>
+                    <Td>{formatDate(r.returnDate)}</Td>
+                    <Td>{r.lines.length}</Td>
+                    <Td className="font-extrabold">{formatMoney(r.total)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {applied && tab === 'movements' && movementsReport && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="عدد الحركات" value={String(movementsReport.count)} icon={ArrowLeftRight} tone="brand" />
+            {(movementsReport.byType || []).slice(0, 3).map((row) => (
+              <StatCard key={row.type} label={row.type} value={String(row.count)} hint={`كمية ${row.qty}`} icon={Boxes} tone="sky" />
+            ))}
+          </StatGrid>
+          <Card>
+            <CardHeader title="حركات المخزن التفصيلية" subtitle="آخر 1000 حركة في الفترة" icon={ClipboardCheck} />
+            <Table>
+              <thead><tr><Th>التاريخ</Th><Th>النوع</Th><Th>المخزن</Th><Th>الصنف</Th><Th>كمية</Th><Th>مرجع</Th><Th>ملاحظة</Th></tr></thead>
+              <tbody>
+                {movementsReport.movements.filter((m) => {
+                  const q = search.trim().toLowerCase();
+                  return !q || [m.product.sku, m.product.name, m.warehouse.name, m.type, m.reference || ''].some((x) => x.toLowerCase().includes(q));
+                }).map((m) => (
+                  <tr key={m.id}>
+                    <Td className="whitespace-nowrap">{formatDate(m.createdAt)}</Td>
+                    <Td><Badge tone="sky">{m.type}</Badge></Td>
+                    <Td>{m.warehouse.name}</Td>
+                    <Td className="font-bold">{m.product.name} <span className="font-mono text-[10px] text-slate-400" dir="ltr">{m.product.sku}</span></Td>
+                    <Td className={`font-extrabold ${m.quantity < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{m.quantity}</Td>
+                    <Td className="font-mono text-xs" dir="ltr">{m.reference || '—'}</Td>
+                    <Td className="text-muted">{m.note || '—'}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </Card>
+        </div>
       )}
 
       {applied && tab === 'products' && products && (

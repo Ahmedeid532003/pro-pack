@@ -97,6 +97,36 @@ export class ReportsController {
     return this.service.productInsights(from, to, await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
   }
 
+  @Get('overview')
+  async overview(
+    @Req() req: { user: { userId: string; role: string } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouseIds') warehouseIdsQuery?: string,
+  ) {
+    return this.service.overview(from, to, await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
+  }
+
+  @Get('returns')
+  async returns(
+    @Req() req: { user: { userId: string; role: string } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouseIds') warehouseIdsQuery?: string,
+  ) {
+    return this.service.returnsReport(from, to, await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
+  }
+
+  @Get('movements')
+  async movements(
+    @Req() req: { user: { userId: string; role: string } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouseIds') warehouseIdsQuery?: string,
+  ) {
+    return this.service.movementsReport(from, to, await scopedWarehouseIds(this.prisma, req.user, warehouseIdsQuery));
+  }
+
   @Get('customers')
   customers() {
     return this.service.customersReport();
