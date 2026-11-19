@@ -229,21 +229,21 @@ export function CostingPage() {
                 const line = calc.materialLines.find((m) => m.id === mat.id);
                 return (
                   <div key={mat.id} className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:grid-cols-[1.2fr_6rem_7rem_7rem_2rem]">
-                    <Field label={index === 0 ? 'اسم الخامة' : undefined}>
+                    <Field label={index === 0 ? 'اسم الخامة' : ' '}>
                       <Input
                         value={mat.name}
                         onChange={(e) => setMaterial(mat.id, { name: e.target.value })}
                         placeholder={`خامة ${index + 1}`}
                       />
                     </Field>
-                    <Field label={index === 0 ? 'الوزن' : undefined}>
+                    <Field label={index === 0 ? 'الوزن' : ' '}>
                       <NumberInput
                         value={mat.weight}
                         onValueChange={(weight) => setMaterial(mat.id, { weight })}
                         placeholder="كجم"
                       />
                     </Field>
-                    <Field label={index === 0 ? 'سعر/كجم' : undefined}>
+                    <Field label={index === 0 ? 'سعر/كجم' : ' '}>
                       <NumberInput
                         value={mat.pricePerKg}
                         onValueChange={(pricePerKg) => setMaterial(mat.id, { pricePerKg })}
