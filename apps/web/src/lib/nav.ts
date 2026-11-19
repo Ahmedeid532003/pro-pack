@@ -4,7 +4,6 @@ import {
   Boxes,
   Calculator,
   ClipboardList,
-  FileBarChart,
   Landmark,
   LayoutDashboard,
   LineChart,
@@ -36,7 +35,15 @@ export type NavItem = {
   end?: boolean;
   keywords: string;
   roles?: AppRole[];
+  /** حرف الاختصار مع Ctrl+Alt (مثل D → Ctrl+Alt+D) عشان يتنفّذ بدون تعارض المتصفح. */
+  shortcut?: string;
 };
+
+/** عرض الاختصار جنب عناصر القائمة */
+export function shortcutLabel(key?: string) {
+  if (!key) return '';
+  return `Ctrl+Alt+${key.toUpperCase()}`;
+}
 
 export type NavGroup = {
   label: string;
@@ -54,61 +61,65 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'نظرة عامة',
     items: [
-      { to: '/', label: 'لوحة التحكم', page: 'dashboard', icon: LayoutDashboard, end: true, keywords: 'dashboard رئيسية' },
+      { to: '/', label: 'لوحة التحكم', page: 'dashboard', icon: LayoutDashboard, end: true, keywords: 'dashboard رئيسية', shortcut: 'D' },
     ],
   },
   {
     label: 'المخزون',
     items: [
-      { to: '/warehouses', label: 'المخازن', page: 'warehouses', icon: Warehouse, keywords: 'مخزن warehouse' },
-      { to: '/products', label: 'إضافة أصناف', page: 'products', icon: Package, keywords: 'صنف منتج product استيراد import أصناف' },
-      { to: '/stock', label: 'المخزون', page: 'stock', icon: Boxes, keywords: 'رصيد حركة stock' },
-      { to: '/production', label: 'مراحل التصنيع', page: 'production', icon: Factory, keywords: 'تصنيع طباعة تبطين سلتر تفصيل خام production', roles: ['ADMIN', 'WAREHOUSE', 'ACCOUNTANT'] },
-      { to: '/costing', label: 'حاسبة التكلفة', page: 'production', icon: Calculator, keywords: 'تكلفة ربح طباعة تبطين سليدر تفصيل صمغ هالك مصروفات سعر بيع costing', roles: ['ADMIN', 'WAREHOUSE', 'ACCOUNTANT', 'SALES'] },
-      { to: '/prod-orders', label: 'أوردر إنتاج', page: 'production', icon: ClipboardList, keywords: 'أوردر انتاج طلب عميل delivery', roles: ['ADMIN', 'WAREHOUSE', 'ACCOUNTANT', 'SALES'] },
+      { to: '/warehouses', label: 'المخازن', page: 'warehouses', icon: Warehouse, keywords: 'مخزن warehouse', shortcut: 'W' },
+      { to: '/products', label: 'إضافة أصناف', page: 'products', icon: Package, keywords: 'صنف منتج product استيراد import أصناف', shortcut: 'O' },
+      { to: '/stock', label: 'المخزون', page: 'stock', icon: Boxes, keywords: 'رصيد حركة stock', shortcut: 'I' },
+      { to: '/production', label: 'مراحل التصنيع', page: 'production', icon: Factory, keywords: 'تصنيع طباعة تبطين سلتر تفصيل خام production', roles: ['ADMIN', 'WAREHOUSE', 'ACCOUNTANT'], shortcut: 'E' },
+      { to: '/costing', label: 'حاسبة التكلفة', page: 'production', icon: Calculator, keywords: 'تكلفة ربح طباعة تبطين سليدر تفصيل صمغ هالك مصروفات سعر بيع costing', roles: ['ADMIN', 'WAREHOUSE', 'ACCOUNTANT', 'SALES'], shortcut: 'Q' },
+      { to: '/prod-orders', label: 'أمر إنتاج', page: 'production', icon: ClipboardList, keywords: 'أمر انتاج أوردر طلب عميل delivery', roles: ['ADMIN', 'WAREHOUSE', 'ACCOUNTANT', 'SALES'], shortcut: 'Y' },
     ],
   },
   {
     label: 'الأطراف',
     items: [
-      { to: '/suppliers', label: 'الموردين', page: 'suppliers', icon: Truck, keywords: 'مورد supplier' },
-      { to: '/customers', label: 'العملاء', page: 'customers', icon: Users, keywords: 'عميل customer' },
+      { to: '/suppliers', label: 'الموردين', page: 'suppliers', icon: Truck, keywords: 'مورد supplier', shortcut: 'B' },
+      { to: '/customers', label: 'العملاء', page: 'customers', icon: Users, keywords: 'عميل customer', shortcut: 'U' },
     ],
   },
   {
     label: 'العمليات',
     items: [
-      { to: '/sales', label: 'المبيعات', page: 'sales', icon: ShoppingCart, keywords: 'فاتورة بيع sales' },
-      { to: '/purchases', label: 'المشتريات', page: 'purchases', icon: ShoppingBag, keywords: 'فاتورة شراء purchase' },
-      { to: '/returns', label: 'المرتجعات', page: 'returns', icon: Undo2, keywords: 'مرتجع return' },
-      { to: '/documents', label: 'عروض وأوامر', page: 'documents', icon: ClipboardList, keywords: 'عرض سعر أمر' },
-      { to: '/delivery-notes', label: 'إذن تسليم بضاعة', page: 'documents', icon: PackageCheck, keywords: 'إذن تسليم بضاعة توقيع مستلم delivery' },
-      { to: '/cash', label: 'الخزنة', page: 'cash', icon: Wallet, keywords: 'نقدي خزنة cash' },
+      { to: '/sales', label: 'المبيعات', page: 'sales', icon: ShoppingCart, keywords: 'فاتورة بيع sales', shortcut: 'S' },
+      { to: '/purchases', label: 'المشتريات', page: 'purchases', icon: ShoppingBag, keywords: 'فاتورة شراء purchase', shortcut: 'G' },
+      { to: '/returns', label: 'المرتجعات', page: 'returns', icon: Undo2, keywords: 'مرتجع return', shortcut: 'T' },
+      { to: '/documents', label: 'عروض وأوامر', page: 'documents', icon: ClipboardList, keywords: 'عرض سعر أمر', shortcut: 'N' },
+      { to: '/delivery-notes', label: 'إذن تسليم بضاعة', page: 'documents', icon: PackageCheck, keywords: 'إذن تسليم بضاعة توقيع مستلم delivery', shortcut: 'J' },
+      { to: '/cash', label: 'الخزنة', page: 'cash', icon: Wallet, keywords: 'نقدي خزنة cash', shortcut: 'X' },
     ],
   },
   {
     label: 'المالية',
     items: [
-      { to: '/finance', label: 'المالية', page: 'finance', icon: Landmark, keywords: 'مصروف شيك وردية' },
-      { to: '/hr', label: 'الموارد البشرية', page: 'hr', icon: UserCog, keywords: 'مرتبات حضور عمولة موظف payroll hr', roles: ['ADMIN', 'ACCOUNTANT'] },
-      { to: '/partners', label: 'الشركاء', page: 'partners', icon: Handshake, keywords: 'شريك أرباح سحب partner', roles: ['ADMIN', 'ACCOUNTANT'] },
-      { to: '/statements', label: 'كشوف حسابات', page: 'statements', icon: FileSpreadsheet, keywords: 'كشف حساب عميل مورد دائن مدين لينا علينا مقدم statement', roles: ['ADMIN', 'ACCOUNTANT'] },
-      { to: '/reports', label: 'التقارير', page: 'reports', icon: BarChart3, keywords: 'تقرير report' },
-      { to: '/report-builder', label: 'منشئ التقارير', page: 'reportBuilder', icon: FileBarChart, keywords: 'report builder حفظ تصدير' },
-      { to: '/analytics', label: 'التحليلات', page: 'analytics', icon: LineChart, keywords: 'تحليل analytics نمو' },
-      { to: '/insights', label: 'التنبيهات الذكية', page: 'insights', icon: Sparkles, keywords: 'تنبيه صلاحية نقص' },
+      { to: '/finance', label: 'المالية', page: 'finance', icon: Landmark, keywords: 'مصروف شيك وردية', shortcut: 'M' },
+      { to: '/hr', label: 'الموارد البشرية', page: 'hr', icon: UserCog, keywords: 'مرتبات حضور عمولة موظف payroll hr', roles: ['ADMIN', 'ACCOUNTANT'], shortcut: 'H' },
+      { to: '/partners', label: 'الشركاء', page: 'partners', icon: Handshake, keywords: 'شريك أرباح سحب partner', roles: ['ADMIN', 'ACCOUNTANT'], shortcut: 'L' },
+      { to: '/statements', label: 'كشوف حسابات', page: 'statements', icon: FileSpreadsheet, keywords: 'كشف حساب عميل مورد دائن مدين لينا علينا مقدم statement', roles: ['ADMIN', 'ACCOUNTANT'], shortcut: 'A' },
+      { to: '/reports', label: 'التقارير', page: 'reports', icon: BarChart3, keywords: 'تقرير report', shortcut: 'R' },
+      { to: '/analytics', label: 'التحليلات', page: 'analytics', icon: LineChart, keywords: 'تحليل analytics نمو', shortcut: 'F' },
+      { to: '/insights', label: 'التنبيهات الذكية', page: 'insights', icon: Sparkles, keywords: 'تنبيه صلاحية نقص', shortcut: 'P' },
     ],
   },
   {
     label: 'النظام',
     items: [
-      { to: '/audit', label: 'سجل العمليات', page: 'audit', icon: ScrollText, keywords: 'audit سجل', roles: ['ADMIN'] },
-      { to: '/settings', label: 'الإعدادات', page: 'settings', icon: Settings, keywords: 'إعداد مستخدم نسخ' },
+      { to: '/audit', label: 'سجل العمليات', page: 'audit', icon: ScrollText, keywords: 'audit سجل', roles: ['ADMIN'], shortcut: 'Z' },
+      { to: '/settings', label: 'الإعدادات', page: 'settings', icon: Settings, keywords: 'إعداد مستخدم نسخ', shortcut: 'C' },
     ],
   },
 ];
 
 export const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
+
+/** خريطة Ctrl+Alt+حرف → عنصر القائمة (يعمل مع لوحة عربية عبر event.code) */
+export const NAV_SHORTCUT_MAP = new Map(
+  NAV_ITEMS.filter((item) => item.shortcut).map((item) => [item.shortcut!.toUpperCase(), item]),
+);
 
 export function canAccess(role: string | undefined, roles?: AppRole[]) {
   if (!roles?.length) return true;
@@ -123,5 +134,4 @@ export const QUICK_ACTIONS: { to: string; label: string; page: string; roles?: A
   { to: '/stock', label: 'المخزون', page: 'stock' },
   { to: '/cash', label: 'حركة خزنة', page: 'cash', roles: ['ADMIN', 'ACCOUNTANT'] },
   { to: '/reports', label: 'التقارير', page: 'reports' },
-  { to: '/report-builder', label: 'منشئ التقارير', page: 'reportBuilder' },
 ];

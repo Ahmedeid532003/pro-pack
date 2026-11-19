@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { PayMethodKind } from '@prisma/client';
+import { autoCode } from '../common/auto-code';
 import { PrismaService } from '../prisma/prisma.service';
 
 const LEGACY = new Set(['CASH', 'BANK_TRANSFER', 'CHECK', 'CARD', 'INSTAPAY', 'OTHER']);
@@ -7,9 +8,10 @@ const LEGACY = new Set(['CASH', 'BANK_TRANSFER', 'CHECK', 'CARD', 'INSTAPAY', 'O
 /** طرق الدفع المعتمدة في السيستم كله */
 const STANDARD_METHODS = [
   { code: 'CASH01', name: 'خزنة رئيسية', accountType: 'CASH', sortOrder: 1 },
-  { code: 'INSTAPAY', name: 'انستا باي', accountType: 'WALLET', sortOrder: 2 },
-  { code: 'WALLET', name: 'محفظة', accountType: 'WALLET', sortOrder: 3 },
-  { code: 'BANK', name: 'حساب بنكي', accountType: 'BANK', sortOrder: 4 },
+  { code: 'EXP01', name: 'خزنة مصروفات', accountType: 'CASH', sortOrder: 2 },
+  { code: 'INSTAPAY', name: 'انستا باي', accountType: 'WALLET', sortOrder: 3 },
+  { code: 'WALLET', name: 'محفظة', accountType: 'WALLET', sortOrder: 4 },
+  { code: 'BANK', name: 'حساب بنكي', accountType: 'BANK', sortOrder: 5 },
 ] as const;
 
 @Injectable()
@@ -29,19 +31,22 @@ export class PayMethodsService implements OnModuleInit {
     });
   }
 
-  async create(data: { name: string; code: string; kind?: PayMethodKind | string; accountType?: string; balance?: number }) {
+  async create(data: { name: string; code?: string; kind?: PayMethodKind | string; accountType?: string; balance?: number }) {
     const name = data.name.trim();
-    const code = data.code.trim().toUpperCase();
     if (name.length < 2) throw new BadRequestException('اسم طريقة الدفع حرفين على الأقل');
-    if (!code) throw new BadRequestException('كود طريقة الدفع مطلوب');
     if (data.kind === 'CHECK' || data.kind === PayMethodKind.CHECK) {
       throw new BadRequestException('الشيك ليس طريقة دفع فورية — سجّله من دفتر الشيكات');
     }
-    const exists = await this.prisma.payMethod.findUnique({ where: { code } });
-    if (exists) throw new BadRequestException('الكود مستخدم لطريقة دفع أخرى');
     const accountType = data.accountType === 'BANK' ? 'BANK' : data.accountType === 'WALLET' ? 'WALLET' : 'CASH';
-    const accountTaken = await this.prisma.cashAccount.findUnique({ where: { code } });
-    if (accountTaken) throw new BadRequestException('الكود مستخدم لحساب موجود');
+    const prefix = accountType === 'BANK' ? 'BNK' : accountType === 'WALLET' ? 'WLT' : 'CSH';
+    let code = autoCode(prefix, data.code).toUpperCase();
+    // تأكد من عدم التكرار
+    for (let i = 0; i < 5; i++) {
+      const taken = await this.prisma.payMethod.findUnique({ where: { code } })
+        || await this.prisma.cashAccount.findUnique({ where: { code } });
+      if (!taken) break;
+      code = autoCode(prefix).toUpperCase();
+    }
     const account = await this.prisma.cashAccount.create({
       data: {
         code,

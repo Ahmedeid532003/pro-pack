@@ -4,7 +4,7 @@ import { Bell, ChevronLeft, LogOut, Menu, Moon, Search, Sun, X, Zap } from 'luci
 import { api, formatRelative } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useTheme } from '../lib/theme';
-import { NAV_GROUPS, NAV_ITEMS, QUICK_ACTIONS, ROLE_LABELS, canAccess } from '../lib/nav';
+import { NAV_GROUPS, NAV_ITEMS, NAV_SHORTCUT_MAP, QUICK_ACTIONS, ROLE_LABELS, canAccess, shortcutLabel } from '../lib/nav';
 import { pushRecent } from '../lib/prefs';
 import { CommandPalette } from './CommandPalette';
 import { PageSkeleton } from './ui';
@@ -56,15 +56,52 @@ export function AppLayout() {
   }, [location.pathname, current]);
 
   useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
+    function isTypingTarget(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      return !!target.closest('input, textarea, select, [contenteditable="true"]');
     }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+
+    function letterFromEvent(event: KeyboardEvent) {
+      const code = event.code || '';
+      if (code.startsWith('Key') && code.length === 4) return code.slice(3).toUpperCase();
+      // احتياطي لو المتصفح رجّع حرف عربي/مختلف
+      const key = (event.key || '').toUpperCase();
+      return /^[A-Z]$/.test(key) ? key : '';
+    }
+
+    function onKey(event: KeyboardEvent) {
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod || event.shiftKey) return;
+      const letter = letterFromEvent(event);
+      if (!letter) return;
+
+      // Ctrl+K بحث عام
+      if (letter === 'K' && !event.altKey) {
+        if (isTypingTarget(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setSearchOpen(true);
+        return;
+      }
+
+      // التنقل: Ctrl+Alt+حرف (يشتغل فعليًا بدون ما المتصفح يبلعه)
+      if (!event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+      const item = NAV_SHORTCUT_MAP.get(letter);
+      if (!item) return;
+      const canGo = user?.access && item.page ? !!user.access[item.page]?.view : canAccess(user?.role, item.roles);
+      if (!canGo) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setNavOpen(false);
+      navigate(item.to);
+    }
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [navigate, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,14 +140,19 @@ export function AppLayout() {
   }
 
   const crumbs = useMemo(() => {
-    if (!current || current.to === '/') return [{ label: 'لوحة التحكم' }];
-    return [{ label: 'لوحة التحكم', to: '/' }, { label: current.label }];
+    if (!current || current.to === '/') {
+      return [{ label: 'لوحة التحكم', shortcut: current?.shortcut || 'D' }];
+    }
+    return [
+      { label: 'لوحة التحكم', to: '/', shortcut: 'D' },
+      { label: current.label, shortcut: current.shortcut },
+    ];
   }, [current]);
 
   return (
     <div className="flex min-h-full bg-surface text-ink">
       {navOpen && <button className="fixed inset-0 z-30 bg-slate-950/40 lg:hidden" onClick={() => setNavOpen(false)} aria-label="إغلاق القائمة" />}
-      <aside className={`no-print fixed inset-y-0 right-0 z-40 flex w-[272px] shrink-0 translate-x-full flex-col overflow-hidden border-s border-white/10 bg-gradient-to-b from-brand-800 via-brand-900 to-brand-950 text-white shadow-2xl transition lg:sticky lg:top-0 lg:bottom-auto lg:h-screen lg:translate-x-0 ${navOpen ? '!translate-x-0' : ''}`}>
+      <aside className={`no-print fixed inset-y-0 right-0 z-40 flex w-[300px] shrink-0 translate-x-full flex-col overflow-hidden border-s border-white/10 bg-gradient-to-b from-brand-800 via-brand-900 to-brand-950 text-white shadow-2xl transition lg:sticky lg:top-0 lg:bottom-auto lg:h-screen lg:translate-x-0 ${navOpen ? '!translate-x-0' : ''}`}>
         <div className="hero-grid pointer-events-none absolute inset-0 opacity-40" />
         <div className="pointer-events-none absolute -top-24 -left-20 h-56 w-56 rounded-full bg-sky-400/15 blur-3xl" />
         <div className="relative flex items-center justify-between border-b border-white/10 px-4 py-4">
@@ -138,9 +180,9 @@ export function AppLayout() {
                     key={item.to}
                     to={item.to}
                     end={item.end}
-                    title={item.label}
+                    title={item.shortcut ? `${item.label} (${shortcutLabel(item.shortcut)})` : item.label}
                     className={({ isActive }) =>
-                      `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                      `group relative flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                         isActive ? 'bg-white text-brand-800 shadow-lg shadow-black/20' : 'text-brand-100 hover:bg-white/10 hover:text-white'
                       }`
                     }
@@ -148,10 +190,22 @@ export function AppLayout() {
                     {({ isActive }) => (
                       <>
                         {isActive && <span className="absolute inset-y-2 -right-3 w-1 rounded-l-full bg-sky-300" />}
-                        <span className={`grid h-7 w-7 place-items-center rounded-lg transition ${isActive ? 'bg-brand-700 text-white' : 'bg-white/5 group-hover:bg-white/15'}`}>
+                        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg transition ${isActive ? 'bg-brand-700 text-white' : 'bg-white/5 group-hover:bg-white/15'}`}>
                           <item.icon size={16} />
                         </span>
-                        {item.label}
+                        <span className="min-w-0 flex-1 leading-5">{item.label}</span>
+                        {item.shortcut && (
+                          <kbd
+                            dir="ltr"
+                            className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-bold leading-none tracking-tight ${
+                              isActive
+                                ? 'border-brand-200 bg-brand-50 text-brand-700'
+                                : 'border-white/20 bg-black/20 text-brand-100 group-hover:border-white/30 group-hover:text-white'
+                            }`}
+                          >
+                            {shortcutLabel(item.shortcut)}
+                          </kbd>
+                        )}
                       </>
                     )}
                   </NavLink>
@@ -184,9 +238,14 @@ export function AppLayout() {
             </button>
             <div className="hidden min-w-0 items-center gap-1 text-sm text-muted sm:flex">
               {crumbs.map((crumb, index) => (
-                <span key={crumb.label} className="flex items-center gap-1">
+                <span key={`${crumb.label}-${index}`} className="flex items-center gap-1.5">
                   {index > 0 && <ChevronLeft size={14} />}
                   <span className={index === crumbs.length - 1 ? 'font-semibold text-slate-800' : ''}>{crumb.label}</span>
+                  {crumb.shortcut && index === crumbs.length - 1 && (
+                    <kbd dir="ltr" className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-500">
+                      {shortcutLabel(crumb.shortcut)}
+                    </kbd>
+                  )}
                 </span>
               ))}
             </div>

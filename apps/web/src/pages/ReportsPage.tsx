@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Boxes, ClipboardCheck, Coins, Download, Factory, FileSpreadsheet, Package, PackageX, Percent, Printer, ShoppingCart,
+  AlertTriangle, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Boxes, ClipboardCheck, Coins, Download, Factory, FileSpreadsheet, Landmark, Package, PackageX, Percent, Printer, ShoppingCart,
   TrendingDown, TrendingUp, Truck, Users, Wallet,
 } from 'lucide-react';
 import { loadExcel } from '../lib/excel';
@@ -309,7 +309,7 @@ type ProductInsights = {
   unsoldValue: number;
 };
 
-type ReportTab = 'overview' | 'inventory' | 'count' | 'sales' | 'purchases' | 'returns' | 'movements' | 'profit' | 'cash' | 'products' | 'customers' | 'suppliers' | 'finance' | 'hr' | 'production';
+type ReportTab = 'overview' | 'inventory' | 'count' | 'sales' | 'purchases' | 'returns' | 'movements' | 'profit' | 'cash' | 'products' | 'customers' | 'suppliers' | 'finance' | 'assets' | 'hr' | 'production';
 type AppliedFilter = { all: boolean; ids: string[]; from: string; to: string };
 
 type OverviewReport = {
@@ -416,6 +416,7 @@ const TAB_LABEL: Record<ReportTab, string> = {
   customers: 'العملاء',
   suppliers: 'الموردين',
   finance: 'المالية',
+  assets: 'الأصول',
   hr: 'الموارد البشرية',
   production: 'التصنيع',
 };
@@ -510,7 +511,7 @@ export function ReportsPage() {
       setCustomersReport(await api<PartyReport>('/reports/customers'));
     } else if (nextTab === 'suppliers') {
       setSuppliersReport(await api<PartyReport>('/reports/suppliers'));
-    } else if (nextTab === 'finance') {
+    } else if (nextTab === 'finance' || nextTab === 'assets') {
       setFinanceReport(await api<FinanceReport>(`/reports/finance${suffix}`));
     } else if (nextTab === 'hr') {
       setHrReport(await api<HrReport>(`/reports/hr${suffix}`));
@@ -789,6 +790,7 @@ export function ReportsPage() {
           ['profit', 'الأرباح', TrendingUp],
           ['cash', 'الخزنة', Wallet],
           ['finance', 'المالية', Coins],
+          ['assets', 'الأصول', Landmark],
           ['customers', 'العملاء', Users],
           ['suppliers', 'الموردين', Truck],
           ['hr', 'الموارد البشرية', Users],
@@ -1609,6 +1611,56 @@ export function ReportsPage() {
             </Table>
           </Card>
         </>
+      )}
+
+      {applied && tab === 'assets' && financeReport && (
+        <div className="space-y-4">
+          <StatGrid>
+            <StatCard label="إجمالي المصروفات / الأصول" value={formatMoney(financeReport.expenseTotal)} hint={`${financeReport.expenses.length} بند تم صرفه`} icon={Landmark} tone="rose" />
+            <StatCard label="عدد البنود" value={String(financeReport.expenses.length)} hint="كل المصروفات المصروفة في الفترة" icon={FileSpreadsheet} tone="amber" />
+            <StatCard label="من حسابات" value={String(new Set(financeReport.expenses.map((e) => e.account.name)).size)} hint="خزائن / حسابات صُرف منها" icon={Wallet} tone="sky" />
+            <StatCard label="تصنيفات" value={String(new Set(financeReport.expenses.map((e) => e.category.name)).size)} hint="بنود تصنيف المصروف" icon={Coins} tone="brand" />
+          </StatGrid>
+          <Card>
+            <CardHeader
+              title="الأصول — كل المصروفات المصروفة"
+              subtitle="تفصيل كامل لكل مصروف اتصّرف في الفترة المختارة"
+              icon={Landmark}
+            />
+            {financeReport.expenses.length === 0 ? (
+              <Empty text="لا توجد مصروفات في الفترة" hint="سجّل المصروفات من صفحة المالية لتظهر هنا كأصول" />
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>التاريخ</Th>
+                    <Th>التصنيف / البند</Th>
+                    <Th>الحساب / الخزنة</Th>
+                    <Th>ملاحظات</Th>
+                    <Th>المبلغ</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {financeReport.expenses.map((row) => (
+                    <tr key={row.id} className="row-credit">
+                      <Td className="whitespace-nowrap text-slate-500">{formatDate(row.expenseDate)}</Td>
+                      <Td><Badge tone="amber">{row.category.name}</Badge></Td>
+                      <Td className="font-semibold">{row.account.name}</Td>
+                      <Td className="max-w-xs truncate text-muted">{row.notes || '—'}</Td>
+                      <Td className="font-extrabold text-rose-600">{formatMoney(row.amount)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <Td colSpan={4} className="font-black text-slate-800">الإجمالي</Td>
+                    <Td className="font-black text-rose-700">{formatMoney(financeReport.expenseTotal)}</Td>
+                  </tr>
+                </tfoot>
+              </Table>
+            )}
+          </Card>
+        </div>
       )}
 
       {applied && tab === 'finance' && financeReport && (

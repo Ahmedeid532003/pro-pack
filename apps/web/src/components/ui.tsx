@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import { AlertOctagon, CalendarRange, ChevronLeft, ChevronRight, Inbox, RotateCcw, X } from 'lucide-react';
 import { NAV_ITEMS } from '../lib/nav';
+import { onFormNavKeyDown } from '../lib/formNav';
 
 export function todayIso() {
   const date = new Date();
@@ -192,16 +193,21 @@ export function Button({
 
 const CONTROL = 'w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 disabled:bg-slate-50 disabled:text-slate-500';
 
-export function Input({ className = '', type, onWheel, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+export function Input({ className = '', type, onWheel, onKeyDown, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       type={type}
+      data-nav=""
       className={`h-10 ${CONTROL} ${type === 'number' ? 'no-spinner' : ''} ${className}`}
       onWheel={(e) => {
         if (type === 'number') {
           (e.target as HTMLInputElement).blur();
         }
         onWheel?.(e);
+      }}
+      onKeyDown={(e) => {
+        onFormNavKeyDown(e);
+        onKeyDown?.(e);
       }}
       {...props}
     />
@@ -213,6 +219,7 @@ export function NumberInput({
   value,
   onValueChange,
   className = '',
+  onKeyDown,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & {
   value: number | '';
@@ -229,14 +236,23 @@ export function NumberInput({
         if (raw === '') onValueChange('');
         else onValueChange(Number(raw));
       }}
+      onKeyDown={onKeyDown}
       {...props}
     />
   );
 }
 
-export function Select({ className = '', children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ className = '', children, onKeyDown, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={`select-control h-10 cursor-pointer ${CONTROL} ${className}`} {...props}>
+    <select
+      data-nav=""
+      className={`select-control h-10 cursor-pointer ${CONTROL} ${className}`}
+      onKeyDown={(e) => {
+        // Ctrl/Alt+أسهم أو بعد إغلاق القائمة: تنقل للحقل التالي بـ Enter ليس هنا
+        onKeyDown?.(e);
+      }}
+      {...props}
+    >
       {children}
     </select>
   );

@@ -151,7 +151,7 @@ export function ProdOrdersPage() {
           })),
         }),
       });
-      toast.success('تم حفظ أوردر الإنتاج');
+      toast.success('تم حفظ أمر الإنتاج');
       setOpen(false);
       setForm(emptyForm());
       setPrintOrder(created);
@@ -194,18 +194,18 @@ export function ProdOrdersPage() {
   return (
     <div>
       <PageHeader
-        title="أوردر إنتاج"
-        subtitle="طلب تشغيل من العميل: بنود متعددة بالمقاس والكمية · تاريخ الطلب والاستلام · طباعة"
+        title="أمر إنتاج"
+        subtitle="طلب تشغيل من العميل: أصناف متعددة بالمقاس والكمية · تاريخ الطلب والاستلام · طباعة"
         actions={
           <Button onClick={() => { setForm(emptyForm()); setOpen(true); }}>
-            <Plus size={16} /> أوردر جديد
+            <Plus size={16} /> أمر جديد
           </Button>
         }
       />
 
       <Card>
         {rows.length === 0 ? (
-          <Empty text="لا أوردرات بعد" hint="أنشئ أوردر إنتاج باختيار العميل وإضافة البنود" />
+          <Empty text="لا أوامر بعد" hint="أنشئ أمر إنتاج باختيار العميل وإضافة الأصناف" />
         ) : (
           <Table>
             <thead>
@@ -278,11 +278,11 @@ export function ProdOrdersPage() {
         )}
       </Card>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="أوردر إنتاج جديد" wide>
-        <div className="space-y-3">
+      <Modal open={open} onClose={() => setOpen(false)} title="أمر إنتاج جديد" wide>
+        <div className="space-y-3" data-nav-root="">
           <div className="flex items-center gap-2 rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-900">
             <ClipboardPlus size={16} />
-            أضف بند أو أكتر — العرض والسمك اختياريين وبالسنتيمتر
+            أضف أكثر من صنف بعلامة + — العرض والسمك اختياريين وبالسنتيمتر · تنقل بالأسهم ↓↑
           </div>
           <Field label="العميل">
             <Select value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
@@ -297,7 +297,7 @@ export function ProdOrdersPage() {
             <div className="flex items-center justify-between">
               <div className="text-sm font-extrabold text-slate-800">البنود</div>
               <Button type="button" variant="secondary" onClick={() => setForm({ ...form, lines: [...form.lines, emptyLine()] })}>
-                <Plus size={14} /> بند
+                <Plus size={14} /> إضافة صنف
               </Button>
             </div>
             {form.lines.map((line, index) => (
@@ -355,13 +355,13 @@ export function ProdOrdersPage() {
         </div>
       </Modal>
 
-      <Modal open={!!printOrder} onClose={() => setPrintOrder(null)} title={`أوردر إنتاج ${printOrder?.number || ''}`} wide>
+      <Modal open={!!printOrder} onClose={() => setPrintOrder(null)} title={`أمر إنتاج ${printOrder?.number || ''}`} wide>
         {printOrder && (
           <div>
             <div className="mb-4 flex justify-end no-print">
               <Button onClick={() => window.print()}><Printer size={16} /> طباعة / PDF</Button>
             </div>
-            <PrintHeader title={`أوردر إنتاج رقم ${printOrder.number}`} subtitle={STATUS[printOrder.status] || printOrder.status} />
+            <PrintHeader title={`أمر إنتاج رقم ${printOrder.number}`} subtitle={STATUS[printOrder.status] || printOrder.status} />
             <div className="mb-4 grid gap-2 text-sm sm:grid-cols-2">
               <div>العميل: <b>{printOrder.customer.name}</b></div>
               <div>الهاتف: <b>{printOrder.customer.phone || '—'}</b></div>

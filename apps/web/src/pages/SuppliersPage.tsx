@@ -306,10 +306,14 @@ export function SuppliersPage() {
       </Card>
 
       <Modal open={open} onClose={() => setOpen(false)} title={editingId ? 'تعديل مورد' : 'مورد جديد'}>
-        <div className="space-y-3">
-          <Field label="كود المورد (اختياري)" icon={<Hash size={16} />} error={formErrors.code} hint="لو فاضي يتولّد تلقائيًا">
-            <Input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} />
-          </Field>
+        <div className="space-y-3" data-nav-root="">
+          {editingId ? (
+            <Field label="كود المورد" icon={<Hash size={16} />} hint="يتولّد تلقائيًا من النظام">
+              <Input value={form.code} readOnly dir="ltr" className="bg-slate-50 font-mono" />
+            </Field>
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">كود المورد يتولّد تلقائيًا عند الحفظ</p>
+          )}
           <Field label="اسم المورد" icon={<Truck size={16} />} error={formErrors.name}>
             <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </Field>

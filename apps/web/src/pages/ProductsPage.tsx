@@ -152,9 +152,13 @@ function ProductFormWizard({
       </div>
       {step === 0 && (
         <div className="space-y-3">
-          <Field label="كود الصنف (اختياري)" icon={<Tag size={16} />} error={issues.errors.sku} hint="لو سيبته فاضي يتولّد تلقائيًا">
-            <Input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} placeholder="اختياري" />
-          </Field>
+          {form.sku ? (
+            <Field label="كود الصنف" icon={<Tag size={16} />} hint="يتولّد تلقائيًا من النظام">
+              <Input value={form.sku} readOnly dir="ltr" className="bg-slate-50 font-mono" />
+            </Field>
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">كود الصنف يتولّد تلقائيًا عند الحفظ</p>
+          )}
           <Field label="اسم الصنف" icon={<Package size={16} />} error={issues.errors.name}>
             <Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </Field>

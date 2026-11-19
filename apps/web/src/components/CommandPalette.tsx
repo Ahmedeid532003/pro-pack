@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Star } from 'lucide-react';
 import { api } from '../lib/api';
-import { NAV_ITEMS, QUICK_ACTIONS, canAccess } from '../lib/nav';
+import { NAV_ITEMS, QUICK_ACTIONS, canAccess, shortcutLabel } from '../lib/nav';
 import { useAuth } from '../lib/auth';
 import { favorites, recentPages, toggleFavorite, type Bookmark } from '../lib/prefs';
 
@@ -54,7 +54,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           ...data.sales.map((row) => ({ id: `sale-${row.id}`, title: row.number, subtitle: `فاتورة بيع · ${row.customer.name}`, to: `/sales?open=${row.id}`, group: 'فواتير البيع' })),
           ...data.purchases.map((row) => ({ id: `buy-${row.id}`, title: row.number, subtitle: `فاتورة شراء · ${row.supplier.name}`, to: `/purchases?open=${row.id}`, group: 'فواتير الشراء' })),
           ...data.warehouses.map((row) => ({ id: `w-${row.id}`, title: row.name, subtitle: `مخزن · ${row.code}`, to: `/warehouses?q=${encodeURIComponent(row.name)}`, group: 'المخازن' })),
-          ...(data.reports || []).map((row) => ({ id: `rep-${row.id}`, title: row.name, subtitle: 'تقرير محفوظ', to: '/report-builder', group: 'التقارير' })),
+          ...(data.reports || []).map((row) => ({ id: `rep-${row.id}`, title: row.name, subtitle: 'تقرير محفوظ', to: '/reports', group: 'التقارير' })),
         ]);
       } finally {
         setLoading(false);
@@ -67,7 +67,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const q = query.trim().toLowerCase();
     const pages = NAV_ITEMS.filter((item) => canAccess(user?.role, item.roles))
       .filter((item) => !q || `${item.label} ${item.keywords}`.toLowerCase().includes(q))
-      .map((item) => ({ id: item.to, title: item.label, subtitle: 'صفحة', to: item.to, group: 'الصفحات' }));
+      .map((item) => ({
+        id: item.to,
+        title: item.label,
+        subtitle: item.shortcut ? `صفحة · ${shortcutLabel(item.shortcut)}` : 'صفحة',
+        to: item.to,
+        group: 'الصفحات',
+      }));
     const actions = QUICK_ACTIONS.filter((item) => canAccess(user?.role, item.roles))
       .filter((item) => !q || item.label.includes(query.trim()))
       .map((item) => ({ id: `qa-${item.to}`, title: item.label, subtitle: 'إجراء', to: item.to, group: 'إجراءات' }));

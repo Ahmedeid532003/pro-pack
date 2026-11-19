@@ -24,7 +24,7 @@ type Tx = {
   receivedBy?: string | null;
   deliveredBy?: string | null;
   createdBy?: { fullName: string } | null;
-  account: { name: string };
+  account: { id?: string; name: string };
 };
 
 const VOUCHER_LABEL = (t: Pick<Tx, 'voucherKind' | 'direction'>) =>
@@ -36,13 +36,13 @@ type OpenInvoice = {
 type Receipt = {
   id: string; number: string; amount: number; paymentMethod: string; receivedAt: string;
   referenceNo?: string | null; note?: string | null;
-  customer: { name: string }; cashAccount?: { name: string } | null;
+  customer: { name: string }; cashAccount?: { id?: string; name: string } | null;
   salesInvoice?: { number: string } | null;
 };
 type Payment = {
   id: string; number: string; amount: number; paymentMethod: string; paidAt: string;
   referenceNo?: string | null; note?: string | null;
-  supplier: { name: string }; cashAccount?: { name: string } | null;
+  supplier: { name: string }; cashAccount?: { id?: string; name: string } | null;
   purchaseInvoice?: { number: string } | null;
 };
 
@@ -53,7 +53,7 @@ type CashTransfer = {
   createdBy?: { fullName: string } | null;
 };
 
-type Tab = 'overview' | 'receipts' | 'payments' | 'transfers' | 'movements';
+type Tab = 'overview' | 'detail' | 'receipts' | 'payments' | 'transfers' | 'movements';
 
 function oldestOpen(rows: OpenInvoice[]) {
   const open = rows.filter((row) => row.remaining > 0.009);
@@ -72,6 +72,8 @@ function dueBox(rows: OpenInvoice[]) {
 export function CashPage() {
   const toast = useToast();
   const [tab, setTab] = useState<Tab>('overview');
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [accountTxs, setAccountTxs] = useState<Tx[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [methods, setMethods] = useState<PayMethod[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
@@ -101,7 +103,7 @@ export function CashPage() {
     supplierId: '', methodId: '', amount: '' as number | '', purchaseInvoiceId: '',
     referenceNo: '', note: '',
   });
-  const [accForm, setAccForm] = useState({ code: '', name: '', balance: '' as number | '', kind: 'IMMEDIATE', accountType: 'CASH' });
+  const [accForm, setAccForm] = useState({ name: '', balance: '' as number | '', kind: 'IMMEDIATE', accountType: 'CASH' });
   const [transferForm, setTransferForm] = useState({
     fromAccountId: '', toAccountId: '', amount: '' as number | '', note: '',
   });
@@ -144,6 +146,37 @@ export function CashPage() {
     const timer = window.setTimeout(() => { load().catch(() => undefined); }, 200);
     return () => window.clearTimeout(timer);
   }, [listPage, pageSize, search]);
+
+  useEffect(() => {
+    if (!selectedAccountId) {
+      setAccountTxs([]);
+      return;
+    }
+    api<{ items: Tx[] } | Tx[]>(`/cash/transactions?accountId=${selectedAccountId}&page=1&pageSize=200`)
+      .then((data) => setAccountTxs(Array.isArray(data) ? data : data.items || []))
+      .catch(() => setAccountTxs([]));
+  }, [selectedAccountId, txs]);
+
+  function openAccount(accountId: string) {
+    setSelectedAccountId(accountId);
+    setTab('detail');
+  }
+
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId) || null;
+  const detailReceipts = useMemo(
+    () => receipts.filter((r) => r.cashAccount?.id === selectedAccountId || r.cashAccount?.name === selectedAccount?.name),
+    [receipts, selectedAccountId, selectedAccount?.name],
+  );
+  const detailPayments = useMemo(
+    () => payments.filter((p) => p.cashAccount?.id === selectedAccountId || p.cashAccount?.name === selectedAccount?.name),
+    [payments, selectedAccountId, selectedAccount?.name],
+  );
+  const detailTransfers = useMemo(
+    () => transfers.filter((t) => t.fromAccount.id === selectedAccountId || t.toAccount.id === selectedAccountId),
+    [transfers, selectedAccountId],
+  );
+  const detailIn = accountTxs.filter((t) => t.direction === 'IN').reduce((s, t) => s + t.amount, 0);
+  const detailOut = accountTxs.filter((t) => t.direction !== 'IN').reduce((s, t) => s + t.amount, 0);
 
   const filteredReceipts = receipts;
   const filteredPayments = payments;
@@ -246,7 +279,7 @@ export function CashPage() {
         }),
       });
       setAccOpen(false);
-      setAccForm({ code: '', name: '', balance: '', kind: 'IMMEDIATE', accountType: 'CASH' });
+      setAccForm({ name: '', balance: '', kind: 'IMMEDIATE', accountType: 'CASH' });
       toast.success('تمت إضافة الخزنة / طريقة الدفع');
       load();
     } catch (e) {
@@ -304,6 +337,7 @@ export function CashPage() {
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'overview', label: 'الحسابات', count: accounts.length },
+    ...(selectedAccount ? [{ id: 'detail' as Tab, label: selectedAccount.name, count: accountTxs.length }] : []),
     { id: 'receipts', label: 'التحصيلات', count: receipts.length },
     { id: 'payments', label: 'السدادات', count: payments.length },
     { id: 'transfers', label: 'التحويلات', count: transfers.length },
@@ -372,7 +406,12 @@ export function CashPage() {
               {list.length === 0 ? <Empty text={`لا توجد ${title}`} /> : (
                 <div className="grid gap-3">
                   {list.map((a) => (
-                    <div key={a.id} className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${gradient} p-4 text-white shadow-lg`}>
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => openAccount(a.id)}
+                      className={`relative w-full overflow-hidden rounded-2xl bg-gradient-to-br ${gradient} p-4 text-right text-white shadow-lg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/40`}
+                    >
                       <div className="pointer-events-none absolute -left-6 -top-8 h-24 w-24 rounded-full bg-white/10" />
                       <div className="pointer-events-none absolute -bottom-10 left-12 h-24 w-24 rounded-full bg-white/5" />
                       <div className="relative flex items-center justify-between text-xs text-white/80">
@@ -380,8 +419,11 @@ export function CashPage() {
                         <span className="font-mono tracking-widest" dir="ltr">{a.code}</span>
                       </div>
                       <div className="relative mt-5 text-[1.35rem] font-black tracking-tight tabular-nums">{formatMoney(a.balance)}</div>
-                      <div className="relative mt-1 text-[11px] text-white/70">{total > 0 ? `${((a.balance / total) * 100).toFixed(1)}% من إجمالي الأرصدة` : '—'}</div>
-                    </div>
+                      <div className="relative mt-1 text-[11px] text-white/70">
+                        {total > 0 ? `${((a.balance / total) * 100).toFixed(1)}% من إجمالي الأرصدة` : '—'}
+                        <span className="ms-2 font-bold text-white/90">· اضغط للتفاصيل</span>
+                      </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -397,6 +439,154 @@ export function CashPage() {
           </div>
         </Card>
         </>
+      )}
+
+      {tab === 'detail' && selectedAccount && (
+        <div className="space-y-4">
+          <Card className="!p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-slate-500">تفاصيل الخزنة / الحساب</div>
+                <div className="mt-1 text-2xl font-black text-slate-900">{selectedAccount.name}</div>
+                <div className="mt-1 font-mono text-xs font-bold text-brand-700" dir="ltr">{selectedAccount.code}</div>
+              </div>
+              <div className="text-left">
+                <div className="text-xs font-bold text-slate-500">الرصيد الحالي</div>
+                <div className="text-3xl font-black money-num text-emerald-700">{formatMoney(selectedAccount.balance)}</div>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-4">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <div className="text-[11px] font-bold text-emerald-700">وارد</div>
+                <div className="text-lg font-black money-num text-emerald-900">{formatMoney(detailIn)}</div>
+              </div>
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
+                <div className="text-[11px] font-bold text-rose-700">صادر</div>
+                <div className="text-lg font-black money-num text-rose-900">{formatMoney(detailOut)}</div>
+              </div>
+              <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2">
+                <div className="text-[11px] font-bold text-sky-700">تحصيلات</div>
+                <div className="text-lg font-black money-num text-sky-900">{detailReceipts.length}</div>
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                <div className="text-[11px] font-bold text-amber-700">تحويلات</div>
+                <div className="text-lg font-black money-num text-amber-900">{detailTransfers.length}</div>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setTxForm({ accountId: selectedAccount.id, direction: 'IN', amount: '', description: '', voucherKind: 'RECEIPT', receivedBy: '', deliveredBy: '' });
+                  setTxOpen(true);
+                }}
+              >
+                إذن استلام على هذه الخزنة
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setTxForm({ accountId: selectedAccount.id, direction: 'OUT', amount: '', description: '', voucherKind: 'PAYOUT', receivedBy: '', deliveredBy: '' });
+                  setTxOpen(true);
+                }}
+              >
+                إذن صرف من هذه الخزنة
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setSelectedAccountId(null); setTab('overview'); }}>رجوع للحسابات</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader title="حركات الخزنة" subtitle={`${accountTxs.length} حركة`} icon={Wallet} />
+            {accountTxs.length === 0 ? <Empty text="لا توجد حركات على هذه الخزنة" /> : (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>التاريخ</Th><Th>النوع</Th><Th>البيان</Th><Th>المسلِّم / المستلِم</Th><Th>المبلغ</Th><Th></Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accountTxs.map((t) => (
+                    <tr key={t.id} className={t.direction === 'IN' ? 'row-debit' : 'row-credit'}>
+                      <Td className="whitespace-nowrap text-slate-500">{formatDate(t.createdAt)}</Td>
+                      <Td><Badge tone={t.direction === 'IN' ? 'emerald' : 'rose'}>{VOUCHER_LABEL(t)}</Badge></Td>
+                      <Td className="max-w-xs truncate">{t.description || '—'}</Td>
+                      <Td className="text-xs text-slate-600">{t.deliveredBy || t.receivedBy || t.createdBy?.fullName || '—'}</Td>
+                      <Td className={`font-extrabold ${t.direction === 'IN' ? 'text-emerald-700' : 'text-rose-600'}`}>{formatMoney(t.amount)}</Td>
+                      <Td>
+                        {(t.voucherKind === 'RECEIPT' || t.voucherKind === 'PAYOUT') && (
+                          <button type="button" className="text-slate-400 hover:text-brand-700" onClick={() => setPrintTx(t)} title="طباعة">
+                            <Printer size={14} />
+                          </button>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="التحصيلات المرتبطة" subtitle={`${detailReceipts.length}`} icon={ArrowDownLeft} />
+              {detailReceipts.length === 0 ? <Empty text="لا تحصيلات" /> : (
+                <Table>
+                  <thead><tr><Th>الرقم</Th><Th>العميل</Th><Th>المبلغ</Th><Th>التاريخ</Th></tr></thead>
+                  <tbody>
+                    {detailReceipts.map((r) => (
+                      <tr key={r.id}>
+                        <Td className="font-mono text-xs" dir="ltr">{r.number}</Td>
+                        <Td>{r.customer.name}</Td>
+                        <Td className="font-extrabold text-emerald-700">{formatMoney(r.amount)}</Td>
+                        <Td>{formatDate(r.receivedAt)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </Card>
+            <Card>
+              <CardHeader title="السدادات المرتبطة" subtitle={`${detailPayments.length}`} icon={ArrowUpRight} />
+              {detailPayments.length === 0 ? <Empty text="لا سدادات" /> : (
+                <Table>
+                  <thead><tr><Th>الرقم</Th><Th>المورد</Th><Th>المبلغ</Th><Th>التاريخ</Th></tr></thead>
+                  <tbody>
+                    {detailPayments.map((p) => (
+                      <tr key={p.id}>
+                        <Td className="font-mono text-xs" dir="ltr">{p.number}</Td>
+                        <Td>{p.supplier.name}</Td>
+                        <Td className="font-extrabold text-rose-600">{formatMoney(p.amount)}</Td>
+                        <Td>{formatDate(p.paidAt)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader title="تحويلات هذه الخزنة" subtitle={`${detailTransfers.length}`} icon={ArrowLeftRight} />
+            {detailTransfers.length === 0 ? <Empty text="لا تحويلات" /> : (
+              <Table>
+                <thead><tr><Th>الرقم</Th><Th>من</Th><Th>إلى</Th><Th>المبلغ</Th><Th>التاريخ</Th></tr></thead>
+                <tbody>
+                  {detailTransfers.map((row) => (
+                    <tr key={row.id}>
+                      <Td className="font-mono text-xs" dir="ltr">{row.number}</Td>
+                      <Td className="text-rose-700">{row.fromAccount.name}</Td>
+                      <Td className="text-emerald-700">{row.toAccount.name}</Td>
+                      <Td className="font-extrabold">{formatMoney(row.amount)}</Td>
+                      <Td>{formatDate(row.createdAt)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+        </div>
       )}
 
       {tab === 'transfers' && (
@@ -854,9 +1044,9 @@ export function CashPage() {
       </Modal>
 
       <Modal open={accOpen} onClose={() => setAccOpen(false)} title="خزنة / طريقة دفع جديدة">
-        <div className="space-y-3">
+        <div className="space-y-3" data-nav-root="">
           <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            أضف خزنة أو محفظة (مثل أورنج كاش / فودافون كاش) ثم حوّل منها وإليها بحرية.
+            أضف خزنة أو محفظة — الكود يتولّد تلقائيًا من النظام.
           </p>
           <div>
             <Label>نوع الحساب</Label>
@@ -866,8 +1056,7 @@ export function CashPage() {
               <option value="BANK">حساب بنكي</option>
             </Select>
           </div>
-          <div><Label>الكود</Label><Input value={accForm.code} onChange={(e) => setAccForm({ ...accForm, code: e.target.value })} placeholder="ORANGE" dir="ltr" /></div>
-          <div><Label>الاسم</Label><Input value={accForm.name} onChange={(e) => setAccForm({ ...accForm, name: e.target.value })} placeholder="أورنج كاش" /></div>
+          <div><Label>الاسم</Label><Input value={accForm.name} onChange={(e) => setAccForm({ ...accForm, name: e.target.value })} placeholder="خزنة مصروفات / أورنج كاش" /></div>
           <div>
             <Label>رصيد افتتاحي</Label>
             <NumberInput value={accForm.balance} onValueChange={(v) => setAccForm({ ...accForm, balance: v })} />

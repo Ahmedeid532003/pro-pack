@@ -44,7 +44,7 @@ class PaymentDto {
 
 class MethodDto {
   @IsString() name!: string;
-  @IsString() code!: string;
+  @IsOptional() @IsString() code?: string;
   @IsOptional() @IsEnum(PayMethodKind) kind?: PayMethodKind;
   @IsOptional() @IsString() accountType?: string;
   @IsOptional() @IsNumber() balance?: number;
