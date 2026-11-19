@@ -25,18 +25,26 @@ export class UsersService {
     });
   }
 
-  async create(data: { username: string; password: string; fullName: string; role: Role }) {
+  async create(data: {
+    username: string;
+    password: string;
+    fullName: string;
+    role: Role;
+    permissions?: Record<string, unknown>;
+  }) {
     const exists = await this.prisma.user.findUnique({ where: { username: data.username } });
     if (exists) throw new ConflictException('اسم المستخدم موجود مسبقاً');
     const passwordHash = await bcrypt.hash(data.password, 10);
+    const access = data.permissions ? normalizeAccess(data.permissions, data.role) : normalizeAccess(undefined, data.role);
     return this.prisma.user.create({
       data: {
         username: data.username,
         passwordHash,
         fullName: data.fullName,
         role: data.role,
+        permissions: JSON.stringify(access),
       },
-      select: { id: true, username: true, fullName: true, role: true, isActive: true },
+      select: { id: true, username: true, fullName: true, role: true, isActive: true, permissions: true },
     });
   }
 

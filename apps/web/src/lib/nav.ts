@@ -12,7 +12,6 @@ import {
   Handshake,
   Package,
   PackageCheck,
-  ScrollText,
   Settings,
   ShoppingBag,
   ShoppingCart,
@@ -35,14 +34,14 @@ export type NavItem = {
   end?: boolean;
   keywords: string;
   roles?: AppRole[];
-  /** حرف الاختصار مع Ctrl+Alt (مثل D → Ctrl+Alt+D) عشان يتنفّذ بدون تعارض المتصفح. */
+  /** حرف الاختصار مع Ctrl (مثل D → Ctrl+D). */
   shortcut?: string;
 };
 
 /** عرض الاختصار جنب عناصر القائمة */
 export function shortcutLabel(key?: string) {
   if (!key) return '';
-  return `Ctrl+Alt+${key.toUpperCase()}`;
+  return `Ctrl+${key.toUpperCase()}`;
 }
 
 export type NavGroup = {
@@ -108,7 +107,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'النظام',
     items: [
-      { to: '/audit', label: 'سجل العمليات', page: 'audit', icon: ScrollText, keywords: 'audit سجل', roles: ['ADMIN'], shortcut: 'Z' },
       { to: '/settings', label: 'الإعدادات', page: 'settings', icon: Settings, keywords: 'إعداد مستخدم نسخ', shortcut: 'C' },
     ],
   },
@@ -116,7 +114,7 @@ export const NAV_GROUPS: NavGroup[] = [
 
 export const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
-/** خريطة Ctrl+Alt+حرف → عنصر القائمة (يعمل مع لوحة عربية عبر event.code) */
+/** خريطة Ctrl+حرف → عنصر القائمة (يعمل مع لوحة عربية عبر event.code) */
 export const NAV_SHORTCUT_MAP = new Map(
   NAV_ITEMS.filter((item) => item.shortcut).map((item) => [item.shortcut!.toUpperCase(), item]),
 );

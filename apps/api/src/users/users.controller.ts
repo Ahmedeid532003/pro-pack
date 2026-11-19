@@ -10,6 +10,7 @@ class CreateUserDto {
   @IsString() @MinLength(4) password!: string;
   @IsString() fullName!: string;
   @IsEnum(Role) role!: Role;
+  @IsOptional() @IsObject() permissions?: Record<string, unknown>;
 }
 
 class ChangePasswordDto {

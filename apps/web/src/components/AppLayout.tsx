@@ -74,22 +74,20 @@ export function AppLayout() {
 
     function onKey(event: KeyboardEvent) {
       const mod = event.ctrlKey || event.metaKey;
-      if (!mod || event.shiftKey) return;
+      if (!mod || event.shiftKey || event.altKey) return;
       const letter = letterFromEvent(event);
       if (!letter) return;
+      if (isTypingTarget(event.target)) return;
 
       // Ctrl+K بحث عام
-      if (letter === 'K' && !event.altKey) {
-        if (isTypingTarget(event.target)) return;
+      if (letter === 'K') {
         event.preventDefault();
         event.stopPropagation();
         setSearchOpen(true);
         return;
       }
 
-      // التنقل: Ctrl+Alt+حرف (يشتغل فعليًا بدون ما المتصفح يبلعه)
-      if (!event.altKey) return;
-      if (isTypingTarget(event.target)) return;
+      // التنقل: Ctrl+حرف
       const item = NAV_SHORTCUT_MAP.get(letter);
       if (!item) return;
       const canGo = user?.access && item.page ? !!user.access[item.page]?.view : canAccess(user?.role, item.roles);

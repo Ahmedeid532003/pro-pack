@@ -30,7 +30,6 @@ const StatementsPage = lazy(() => import('./pages/StatementsPage').then((m) => (
 const StatementDetailPage = lazy(() => import('./pages/StatementDetailPage').then((m) => ({ default: m.StatementDetailPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const InsightsPage = lazy(() => import('./pages/InsightsPage').then((m) => ({ default: m.InsightsPage })));
-const AuditPage = lazy(() => import('./pages/AuditPage').then((m) => ({ default: m.AuditPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })));
 
 function PageGuard({ page, children, anyOf }: { page: string; children: React.ReactNode; anyOf?: string[] }) {
@@ -87,7 +86,7 @@ export default function App() {
           <Route path="reports" element={<PageGuard page="reports"><ReportsPage /></PageGuard>} />
           <Route path="analytics" element={<PageGuard page="analytics"><AnalyticsPage /></PageGuard>} />
           <Route path="insights" element={<PageGuard page="insights"><InsightsPage /></PageGuard>} />
-          <Route path="audit" element={<PageGuard page="audit"><AuditPage /></PageGuard>} />
+          <Route path="audit" element={<Navigate to="/" replace />} />
           <Route path="organization" element={<Navigate to="/" replace />} />
           <Route path="import" element={<Navigate to="/products" replace />} />
           <Route path="permissions" element={<Navigate to="/" replace />} />

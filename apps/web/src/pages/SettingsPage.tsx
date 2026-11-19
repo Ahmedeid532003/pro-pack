@@ -7,7 +7,7 @@ import { useConfirm, useToast } from '../lib/feedback';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { UserAccess } from '../components/UserAccess';
 import { WarehouseMultiSelect } from '../components/WarehouseMultiSelect';
-import type { AccessMap } from '@m5azen/shared';
+import { templateFor, type AccessMap } from '@m5azen/shared';
 import { Badge, Button, Card, CardHeader, Empty, Input, Label, PageHeader, Select, Table, Td, Th, type Tone } from '../components/ui';
 
 const ROLE_TONE: Record<string, Tone> = { ADMIN: 'brand', ACCOUNTANT: 'violet', WAREHOUSE: 'amber', SALES: 'emerald' };
@@ -39,6 +39,7 @@ export function SettingsPage() {
   const [warehousesUser, setWarehousesUser] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<{ id: string; name: string }[]>([]);
   const [userForm, setUserForm] = useState({ username: '', password: '', fullName: '', role: 'SALES', warehouseIds: [] as string[] });
+  const [createAccess, setCreateAccess] = useState<AccessMap>(() => templateFor('SALES'));
   const [editWarehouseIds, setEditWarehouseIds] = useState<string[]>([]);
   const [backups, setBackups] = useState<string[]>([]);
   const [editingLook, setEditingLook] = useState(false);
@@ -209,14 +210,16 @@ export function SettingsPage() {
           password: userForm.password,
           fullName: userForm.fullName,
           role: userForm.role,
+          permissions: createAccess,
         }),
       });
       if (userForm.warehouseIds.length) {
         await api(`/users/${created.id}/warehouses`, { method: 'PUT', body: JSON.stringify({ warehouseIds: userForm.warehouseIds }) });
       }
       setUserForm({ username: '', password: '', fullName: '', role: 'SALES', warehouseIds: [] });
+      setCreateAccess(templateFor('SALES'));
       setUsers(await api('/users'));
-      toast.success('تمت إضافة المستخدم');
+      toast.success('تمت إضافة المستخدم مع الصلاحيات');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر إضافة المستخدم');
     } finally {
@@ -425,7 +428,14 @@ export function SettingsPage() {
               <div><Label>كلمة السر</Label><Input type="password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} autoComplete="new-password" /></div>
               <div>
                 <Label>الدور</Label>
-                <Select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}>
+                <Select
+                  value={userForm.role}
+                  onChange={(e) => {
+                    const role = e.target.value;
+                    setUserForm({ ...userForm, role });
+                    setCreateAccess(templateFor(role));
+                  }}
+                >
                   <option value="ADMIN">مدير</option>
                   <option value="ACCOUNTANT">حسابات</option>
                   <option value="WAREHOUSE">مخزن</option>
@@ -440,6 +450,16 @@ export function SettingsPage() {
                 value={userForm.warehouseIds}
                 onChange={(warehouseIds) => setUserForm({ ...userForm, warehouseIds })}
                 hint="من غير اختيار = يشوف كل المخازن. مع اختيار = يدخل على مخازنه فقط (فواتير وأصناف وعملاء)"
+              />
+            </div>
+            <div className="mt-3">
+              <Label>صلاحيات الصفحات</Label>
+              <p className="mb-1 text-xs text-muted">حدد الصفحات والإجراءات اللي يشوفها ويعملها المستخدم الجديد قبل الإضافة</p>
+              <UserAccess
+                key={userForm.role}
+                role={userForm.role}
+                showSave={false}
+                onChange={setCreateAccess}
               />
             </div>
             <Button type="submit" className="mt-3" disabled={busy === 'user'}><UserPlus size={16} /> إضافة المستخدم</Button>
@@ -521,7 +541,7 @@ export function SettingsPage() {
           )}
           <p className="mt-3 flex items-start gap-1.5 text-xs text-muted">
             <ShieldCheck size={14} className="mt-0.5 shrink-0" />
-            ربط المستخدم بمخزن يقيّد الفواتير والأصناف والمخزون والعملاء والموردين. صلاحيات الصفحات منفصلة من زر الصلاحيات.
+            عند إنشاء حساب حدّد الصلاحيات مباشرة. وبعد الإضافة تقدر تعدّلها من زر «صلاحيات». ربط المخزن يقيّد الفواتير والأصناف والعملاء.
           </p>
         </Card>
       )}
