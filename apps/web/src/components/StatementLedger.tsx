@@ -171,7 +171,8 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
           />
         </div>
 
-        <div className="statement-print-summary shrink-0 rounded-xl border border-sky-200 bg-gradient-to-l from-sky-50 via-white to-emerald-50 px-2.5 py-2">
+        {/* يظهر في الشاشة فقط — عند الطباعة يبقى اللوجو + الاسم + الجدول */}
+        <div className="statement-print-summary no-print shrink-0 rounded-xl border border-sky-200 bg-gradient-to-l from-sky-50 via-white to-emerald-50 px-2.5 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <BrandMark size="sm" />
@@ -192,8 +193,8 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
               </div>
             </div>
           </div>
-          <div className="statement-summary-stats mt-1.5 grid grid-cols-4 gap-1.5">
-            <div className="statement-stat-total rounded-md border border-slate-200 bg-white/90 px-2 py-1">
+          <div className="mt-1.5 grid grid-cols-4 gap-1.5">
+            <div className="rounded-md border border-slate-200 bg-white/90 px-2 py-1">
               <div className="text-[9px] font-bold text-slate-500">الإجمالي</div>
               <div className="text-xs font-black money-num text-slate-900">{formatMoney(totalLine || totalDaen)}</div>
             </div>
@@ -201,7 +202,7 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
               <div className="text-[9px] font-bold text-emerald-700">مدفوع</div>
               <div className="text-xs font-black money-num text-emerald-900">{formatMoney(totalPaid)}</div>
             </div>
-            <div className="statement-stat-due rounded-md border border-rose-200 bg-rose-50/80 px-2 py-1">
+            <div className="rounded-md border border-rose-200 bg-rose-50/80 px-2 py-1">
               <div className="text-[9px] font-bold text-rose-700">متبقي</div>
               <div className="text-xs font-black money-num text-rose-900">{formatMoney(totalDue)}</div>
             </div>
@@ -273,9 +274,9 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
               <col style={{ width: '7%' }} />
               <col style={{ width: '5%' }} />
               <col style={{ width: '8%' }} />
-              <col className="col-lena" style={{ width: '9%' }} />
+              <col style={{ width: '9%' }} />
               <col style={{ width: '8%' }} />
-              <col className="col-alena" style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
               <col style={{ width: '8%' }} />
               <col style={{ width: '9%' }} />
             </colgroup>
@@ -343,13 +344,13 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
                     <td className="cell-num border border-slate-200 px-1 py-0.5 text-left font-bold" dir="ltr">
                       {num(row.unitPrice) != null ? formatMoney(row.unitPrice!) : '—'}
                     </td>
-                    <td className="col-lena cell-num border border-amber-100 bg-amber-50/70 px-1 py-0.5 text-left font-black text-slate-900" dir="ltr">
+                    <td className="cell-num border border-amber-100 bg-amber-50/70 px-1 py-0.5 text-left font-black text-slate-900" dir="ltr">
                       {lineCell}
                     </td>
-                    <td className="col-paid cell-num border border-emerald-100 bg-emerald-50/70 px-1 py-0.5 text-left font-black text-emerald-900" dir="ltr">
+                    <td className="cell-num border border-emerald-100 bg-emerald-50/70 px-1 py-0.5 text-left font-black text-emerald-900" dir="ltr">
                       {paidCell}
                     </td>
-                    <td className="col-alena cell-num border border-rose-100 bg-rose-50/70 px-1 py-0.5 text-left font-black text-rose-900" dir="ltr">
+                    <td className="cell-num border border-rose-100 bg-rose-50/70 px-1 py-0.5 text-left font-black text-rose-900" dir="ltr">
                       {dueCell}
                     </td>
                     <td className="border border-sky-100 bg-sky-50/50 px-1 py-0.5 font-extrabold text-sky-900 leading-tight">
@@ -364,19 +365,18 @@ export function StatementLedger({ data }: { data: LedgerPayload }) {
                 );
               })}
             </tbody>
-            <tfoot>
+            <tfoot className="no-print">
               <tr className="bg-sky-50 text-slate-900">
                 <td colSpan={6} className="border border-sky-200 px-1.5 py-1 text-right font-black">
-                  <span className="statement-foot-full">الإجمالي · مدفوع · متبقي · الرصيد</span>
-                  <span className="statement-foot-print hidden">مدفوع · الرصيد</span>
+                  الإجمالي · مدفوع · متبقي · الرصيد
                 </td>
-                <td className="col-lena cell-num border border-amber-200 bg-amber-100 px-1 py-1 text-left font-black text-slate-950" dir="ltr">
+                <td className="cell-num border border-amber-200 bg-amber-100 px-1 py-1 text-left font-black text-slate-950" dir="ltr">
                   {formatMoney(totalLine || totalDaen)}
                 </td>
-                <td className="col-paid cell-num border border-emerald-200 bg-emerald-100 px-1 py-1 text-left font-black text-emerald-950" dir="ltr">
+                <td className="cell-num border border-emerald-200 bg-emerald-100 px-1 py-1 text-left font-black text-emerald-950" dir="ltr">
                   {formatMoney(totalPaid)}
                 </td>
-                <td className="col-alena cell-num border border-rose-200 bg-rose-100 px-1 py-1 text-left font-black text-rose-950" dir="ltr">
+                <td className="cell-num border border-rose-200 bg-rose-100 px-1 py-1 text-left font-black text-rose-950" dir="ltr">
                   {formatMoney(totalDue)}
                 </td>
                 <td className="border border-sky-200 px-1 py-1 text-center text-slate-400">—</td>

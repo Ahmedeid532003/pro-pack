@@ -1181,28 +1181,10 @@ model AutomationRun {
 enum HrLeaveKind {
   PAID
   UNPAID
-  ANNUAL
-  PERMISSION
 }
 
 enum HrLeaveStatus {
   APPROVED
-  CANCELLED
-}
-
-enum HrRequestType {
-  LEAVE_ANNUAL
-  LEAVE_PERMISSION
-  ADVANCE
-  BONUS
-  DEDUCTION
-  LATE
-}
-
-enum HrRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
   CANCELLED
 }
 
@@ -1260,8 +1242,6 @@ model HrEmployee {
   attendance        HrAttendance[]
   payrollLines      HrPayrollLine[]
   commissionPayments HrCommissionPayment[]
-  requests          HrRequest[]
-  missions          HrAttendanceMission[]
 }
 
 model HrLeave {
@@ -1271,53 +1251,12 @@ model HrLeave {
   toDate     DateTime
   kind       HrLeaveKind   @default(PAID)
   status     HrLeaveStatus @default(APPROVED)
-  /// ساعات الإذن (لإجازة PERMISSION)
-  hours      Float?
   notes      String?
   createdAt  DateTime      @default(now())
 
   employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([employeeId, fromDate, toDate])
-}
-
-model HrRequest {
-  id           String          @id @default(cuid())
-  employeeId   String
-  type         HrRequestType
-  status       HrRequestStatus @default(PENDING)
-  fromDate     DateTime?
-  toDate       DateTime?
-  hours        Float?
-  amount       Float?
-  notes        String?
-  reviewNotes  String?
-  createdById  String?
-  reviewedById String?
-  reviewedAt   DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-
-  employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@index([employeeId, status])
-  @@index([status, createdAt])
-}
-
-model HrAttendanceMission {
-  id           String    @id @default(cuid())
-  attendanceId String
-  employeeId   String
-  outAt        DateTime
-  inAt         DateTime?
-  notes        String?
-  createdAt    DateTime  @default(now())
-
-  attendance HrAttendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
-  employee   HrEmployee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  @@index([employeeId, outAt])
-  @@index([attendanceId])
 }
 
 model HrMovement {
@@ -1355,7 +1294,6 @@ model HrAttendance {
   updatedAt         DateTime            @updatedAt
 
   employee HrEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  missions HrAttendanceMission[]
 
   @@unique([employeeId, workDate])
   @@index([workDate])
@@ -1411,8 +1349,6 @@ model HrPayrollLine {
   commissionPaidBefore Float  @default(0)
   commissionDue        Float  @default(0)
   net                  Float  @default(0)
-  /// تفاصيل إضافية للحساب (JSON)
-  detailJson           String?
 
   run      HrPayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   employee HrEmployee   @relation(fields: [employeeId], references: [id])

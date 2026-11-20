@@ -96,7 +96,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'المالية',
     items: [
       { to: '/finance', label: 'المالية', page: 'finance', icon: Landmark, keywords: 'مصروف شيك وردية', shortcut: 'M' },
-      { to: '/hr', label: 'الموارد البشرية', page: 'hr', icon: UserCog, keywords: 'مرتبات حضور عمولة موظف payroll hr طلباتي', roles: ['ADMIN', 'ACCOUNTANT', 'SALES', 'WAREHOUSE'], shortcut: 'H' },
+      { to: '/hr', label: 'الموارد البشرية', page: 'hr', icon: UserCog, keywords: 'مرتبات حضور عمولة موظف payroll hr', roles: ['ADMIN', 'ACCOUNTANT'], shortcut: 'H' },
       { to: '/partners', label: 'الشركاء', page: 'partners', icon: Handshake, keywords: 'شريك أرباح سحب partner', roles: ['ADMIN', 'ACCOUNTANT'], shortcut: 'L' },
       { to: '/statements', label: 'كشوف حسابات', page: 'statements', icon: FileSpreadsheet, keywords: 'كشف حساب عميل مورد دائن مدين لينا علينا مقدم statement', roles: ['ADMIN', 'ACCOUNTANT'], shortcut: 'A' },
       { to: '/reports', label: 'التقارير', page: 'reports', icon: BarChart3, keywords: 'تقرير report', shortcut: 'R' },

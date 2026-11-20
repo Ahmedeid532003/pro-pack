@@ -302,11 +302,9 @@ body {
     height: auto !important;
     overflow: visible !important;
   }
-  /* الهيدر والملخص يظهران في الطباعة */
+  /* الهيدر يظهر في الطباعة — الملخص (إجمالي/متبقي/…) للشاشة فقط */
   body.printing-statement .statement-print-header,
   body.printing-statement .statement-print-header *,
-  body.printing-statement .statement-print-summary,
-  body.printing-statement .statement-print-summary *,
   body.printing-statement .print-header,
   body.printing-statement .print-header * {
     display: revert !important;
@@ -314,6 +312,13 @@ body {
   }
   body.printing-statement .print-header {
     display: flex !important;
+  }
+  body.printing-statement .statement-print-summary,
+  body.printing-statement .statement-print-summary *,
+  body.printing-statement .statement-table tfoot,
+  body.printing-statement .statement-table tfoot * {
+    display: none !important;
+    visibility: hidden !important;
   }
   .statement-sheet {
     color: #000 !important;
@@ -403,34 +408,13 @@ body {
     border: 1.5px solid #94a3b8 !important;
   }
   .statement-sheet .statement-print-summary {
-    display: block !important;
-    visibility: visible !important;
-    margin-bottom: 6px !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  /* إخفاء الإجمالي والمتبقي من ملخص الطباعة والجدول */
-  .statement-sheet .statement-stat-total,
-  .statement-sheet .statement-stat-due,
-  .statement-sheet .statement-summary-stats {
     display: none !important;
   }
-  .statement-sheet .statement-table col.col-lena,
-  .statement-sheet .statement-table col.col-alena,
-  .statement-sheet .statement-table th.col-lena,
-  .statement-sheet .statement-table th.col-alena,
-  .statement-sheet .statement-table td.col-lena,
-  .statement-sheet .statement-table td.col-alena {
+  .statement-sheet .statement-table tfoot {
     display: none !important;
   }
-  .statement-sheet .statement-foot-full {
-    display: none !important;
-  }
-  .statement-sheet .statement-foot-print {
-    display: inline !important;
-  }
-  .statement-sheet .brand-mark,
-  .statement-sheet .brand-mark img {
+  .statement-sheet .print-header .brand-mark,
+  .statement-sheet .print-header .brand-mark img {
     display: block !important;
     visibility: visible !important;
     -webkit-print-color-adjust: exact !important;
