@@ -82,6 +82,8 @@ export function parseHrSettings(raw: string | null | undefined): HrSettings {
   }
 }
 
+const CAIRO_TZ = 'Africa/Cairo';
+
 /** YYYY-MM-DD in Africa/Cairo */
 export function cairoYmd(input?: Date | string | null) {
   if (input == null || input === '') return cairoYmd(new Date());
@@ -89,11 +91,53 @@ export function cairoYmd(input?: Date | string | null) {
   const date = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(date.getTime())) throw new BadRequestException('تاريخ غير صالح');
   return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Cairo',
+    timeZone: CAIRO_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(date);
+}
+
+/** Alias: يوم تقويمي بتوقيت القاهرة */
+export function egyptDayKey(input?: Date | string | null) {
+  return cairoYmd(input);
+}
+
+/** بداية اليوم بتوقيت القاهرة (UTC representation) */
+export function egyptDayStart(input?: Date | string | null) {
+  const ymd = egyptDayKey(input);
+  return new Date(`${ymd}T00:00:00.000+02:00`);
+}
+
+/** نهاية اليوم بتوقيت القاهرة */
+export function egyptDayEnd(input?: Date | string | null) {
+  const ymd = egyptDayKey(input);
+  return new Date(`${ymd}T23:59:59.999+02:00`);
+}
+
+/** دقائق منذ منتصف الليل بتوقيت القاهرة */
+export function egyptMinutesOf(input: Date | string) {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) throw new BadRequestException('وقت غير صالح');
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: CAIRO_TZ,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const h = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+  const m = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+  return h * 60 + m;
+}
+
+/** تحويل "HH:mm" إلى دقائق */
+export function parseTimeToMinutes(value: string) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((value || '').trim());
+  if (!m) throw new BadRequestException('صيغة الوقت لازم تكون ساعة:دقيقة مثل 09:30');
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) throw new BadRequestException('وقت خارج النطاق');
+  return h * 60 + min;
 }
 
 /** Store date-only as UTC noon so day never shifts across zones */
@@ -124,6 +168,11 @@ export function eachYmd(fromYmd: string, toYmd: string) {
 /** JS weekday 0=Sun … 6=Sat for a YYYY-MM-DD (Cairo calendar day) */
 export function weekdayOfYmd(ymd: string) {
   return dateOnly(ymd).getUTCDay();
+}
+
+/** يوم الأسبوع 0=أحد … 6=سبت ليوم القاهرة */
+export function egyptWeekday(input?: Date | string | null) {
+  return weekdayOfYmd(egyptDayKey(input));
 }
 
 export function isWeekend(ymd: string, weekendDays: number[]) {

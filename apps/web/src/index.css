@@ -409,6 +409,26 @@ body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  /* إخفاء الإجمالي والمتبقي من ملخص الطباعة والجدول */
+  .statement-sheet .statement-stat-total,
+  .statement-sheet .statement-stat-due,
+  .statement-sheet .statement-summary-stats {
+    display: none !important;
+  }
+  .statement-sheet .statement-table col.col-lena,
+  .statement-sheet .statement-table col.col-alena,
+  .statement-sheet .statement-table th.col-lena,
+  .statement-sheet .statement-table th.col-alena,
+  .statement-sheet .statement-table td.col-lena,
+  .statement-sheet .statement-table td.col-alena {
+    display: none !important;
+  }
+  .statement-sheet .statement-foot-full {
+    display: none !important;
+  }
+  .statement-sheet .statement-foot-print {
+    display: inline !important;
+  }
   .statement-sheet .brand-mark,
   .statement-sheet .brand-mark img {
     display: block !important;

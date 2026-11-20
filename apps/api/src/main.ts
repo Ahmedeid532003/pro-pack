@@ -4,6 +4,8 @@ import { join, resolve } from 'path';
 import { createApp } from './app.factory';
 
 async function bootstrap() {
+  // ثبّت توقيت مصر لكل حسابات الموارد البشرية والحضور
+  if (!process.env.TZ) process.env.TZ = 'Africa/Cairo';
   const app = await createApp();
 
   const webDist = process.env.WEB_DIST || resolve(process.cwd(), '../web/dist');
