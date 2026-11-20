@@ -20,17 +20,29 @@ export class CustomersService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.ensureWalkIn().catch(() => undefined);
+    // لم يعد يُنشأ تلقائيًا — إزالة أي سجل نظام قديم بلا حركات
+    await this.purgeUnusedWalkIn().catch(() => undefined);
   }
 
-  async ensureWalkIn() {
-    const named = await this.prisma.customer.findFirst({ where: { name: WALK_IN_NAME } });
-    if (named) return named;
-    return this.prisma.customer.upsert({
-      where: { code: WALK_IN_CODE },
-      create: { code: WALK_IN_CODE, name: WALK_IN_NAME, notes: 'عميل نقدي يشتري مرة ويمشي' },
-      update: {},
+  /** يحذف «عميل سريع» القديم إذا لم تكن عليه فواتير/حركات */
+  private async purgeUnusedWalkIn() {
+    const rows = await this.prisma.customer.findMany({
+      where: { OR: [{ code: WALK_IN_CODE }, { name: WALK_IN_NAME }] },
+      select: { id: true },
     });
+    for (const row of rows) {
+      const [invoices, receipts, returns, checks, documents, prodOrders] = await Promise.all([
+        this.prisma.salesInvoice.count({ where: { customerId: row.id } }),
+        this.prisma.receipt.count({ where: { customerId: row.id } }),
+        this.prisma.salesReturn.count({ where: { customerId: row.id } }),
+        this.prisma.bankCheck.count({ where: { customerId: row.id } }),
+        this.prisma.tradeDocument.count({ where: { customerId: row.id } }),
+        this.prisma.customerProdOrder.count({ where: { customerId: row.id } }),
+      ]);
+      if (invoices || receipts || returns || checks || documents || prodOrders) continue;
+      await this.prisma.customerWarehouse.deleteMany({ where: { customerId: row.id } });
+      await this.prisma.customer.delete({ where: { id: row.id } });
+    }
   }
 
   private async syncWarehouses(customerId: string, warehouseIds?: string[]) {
@@ -137,7 +149,6 @@ export class CustomersService implements OnModuleInit {
 
   async remove(id: string) {
     const customer = await this.findOne(id);
-    if (customer.code === 'WALKIN') throw new BadRequestException('العميل السريع مستخدم في نقطة البيع ولا يُحذف');
     const [invoices, receipts, returns, checks, documents, prodOrders] = await Promise.all([
       this.prisma.salesInvoice.count({ where: { customerId: id } }),
       this.prisma.receipt.count({ where: { customerId: id } }),

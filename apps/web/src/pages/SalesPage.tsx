@@ -32,7 +32,6 @@ type Product = {
   warehouses?: { warehouseId: string }[];
 };
 type StockRow = { productId: string; quantity: number; product: Product };
-const WALK_IN_NAME = 'عميل سريع';
 type Account = { id: string; name: string };
 type Line = { id?: string; productId: string; quantity: number | ''; unitPrice: number | ''; discount: number | ''; netWeight: number | ''; width: number | ''; thickness: number | '' };
 
@@ -80,18 +79,14 @@ function CustomerPicker({
   onChange: (name: string) => void;
 }) {
   const listId = useId();
-  const ordered = [...customers].sort((a, b) => {
-    if (a.name === WALK_IN_NAME) return -1;
-    if (b.name === WALK_IN_NAME) return 1;
-    return a.name.localeCompare(b.name, 'ar');
-  });
+  const ordered = [...customers].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   return (
     <>
       <Input
         list={listId}
         value={value}
         className={invalid ? 'border-rose-300' : ''}
-        placeholder={WALK_IN_NAME}
+        placeholder="اسم العميل"
         onChange={(e) => onChange(e.target.value)}
       />
       <datalist id={listId}>
@@ -140,7 +135,7 @@ export function SalesPage() {
   const [stockByWh, setStockByWh] = useState<Record<string, { qty: Record<string, number>; products: Product[] }>>({});
   const [editCredit, setEditCredit] = useState<{ warehouseId: string; qty: Record<string, number>; posted: boolean } | null>(null);
   const [form, setForm] = useState({
-    customerName: WALK_IN_NAME,
+    customerName: '',
     warehouseId: '',
     discount: '' as number | '',
     tax: '' as number | '',
@@ -153,7 +148,7 @@ export function SalesPage() {
   const [posSearch, setPosSearch] = useState('');
   const [posCart, setPosCart] = useState<Line[]>([]);
   const [posForm, setPosForm] = useState({
-    customerName: WALK_IN_NAME,
+    customerName: '',
     warehouseId: '',
     discount: '' as number | '',
     payments: [emptyPart()] as TenderPart[],
@@ -416,7 +411,7 @@ export function SalesPage() {
     setPosSearch('');
     setEditCredit(null);
     setPosForm({
-      customerName: WALK_IN_NAME,
+      customerName: '',
       warehouseId: warehouses.length === 1 ? warehouses[0].id : '',
       discount: '',
       payments: [{ methodId: methods.find((method) => method.kind === 'IMMEDIATE')?.id || methods[0]?.id || '', amount: '' }],
@@ -462,7 +457,7 @@ export function SalesPage() {
       setOpen(false);
       setTriedSave(false);
       setForm({
-        customerName: WALK_IN_NAME, warehouseId: '', discount: '', tax: '', payments: [emptyPart()], notes: '', confirm: true,
+        customerName: '', warehouseId: '', discount: '', tax: '', payments: [emptyPart()], notes: '', confirm: true,
       });
       setLines([emptyLine()]);
       setEditCredit(null);
@@ -646,7 +641,7 @@ export function SalesPage() {
     setTriedSave(false);
     setEditCredit(null);
     setForm({
-      customerName: WALK_IN_NAME, warehouseId: warehouses.length === 1 ? warehouses[0].id : '', discount: '', tax: '', payments: [emptyPart()], notes: '', confirm: true,
+      customerName: '', warehouseId: warehouses.length === 1 ? warehouses[0].id : '', discount: '', tax: '', payments: [emptyPart()], notes: '', confirm: true,
     });
     setLines([emptyLine()]);
     setOpen(true);

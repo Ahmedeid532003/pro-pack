@@ -99,10 +99,6 @@ await turso.batch(
       sql: `INSERT INTO "CashAccount" ("id","code","name","accountType","balance","isActive","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?)`,
       args: [id(), 'EXP01', 'خزنة مصروفات', 'CASH', 0, 1, now, now],
     },
-    {
-      sql: `INSERT INTO "Customer" ("id","code","name","notes","balance","creditLimit","priceList","isActive","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      args: [id(), 'WALKIN', 'عميل سريع', 'عميل نقدي يشتري مرة ويمشي', 0, 0, 'RETAIL', 1, now, now],
-    },
   ],
   'write',
 );

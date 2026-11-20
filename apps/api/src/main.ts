@@ -18,9 +18,10 @@ async function bootstrap() {
     });
   }
 
-  const port = process.env.PORT || 3001;
-  await app.listen(port);
-  console.log(`M5azen API running on http://localhost:${port}/api`);
+  const port = Number(process.env.PORT || 3001);
+  const host = process.env.HOST || (process.env.ELECTRON_RUN === '1' ? '127.0.0.1' : '0.0.0.0');
+  await app.listen(port, host);
+  console.log(`M5azen API running on http://${host}:${port}/api`);
   if (existsSync(indexHtml)) console.log(`M5azen web served from ${webDist}`);
 }
 
