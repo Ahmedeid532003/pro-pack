@@ -13,7 +13,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { api, formatDate, formatMoney, getApiBase } from '../lib/api';
-import { useAccess } from '../lib/auth';
+import { useAccess, useAuth } from '../lib/auth';
 import { useConfirm, useToast } from '../lib/feedback';
 import {
   Badge,
@@ -38,7 +38,19 @@ import {
   todayIso,
 } from '../components/ui';
 
-type Tab = 'employees' | 'attendance' | 'leaves' | 'movements' | 'payroll' | 'approval' | 'commissions' | 'settings';
+type Tab = 'employees' | 'attendance' | 'leaves' | 'movements' | 'payroll' | 'approval' | 'commissions' | 'settings' | 'requests';
+type HrReq = {
+  id: string;
+  type: string;
+  status: string;
+  fromDate?: string | null;
+  toDate?: string | null;
+  hours?: number | null;
+  amount?: number | null;
+  notes?: string | null;
+  reviewNotes?: string | null;
+  employee: { id: string; code: string; name: string };
+};
 
 type Employee = {
   id: string;
@@ -79,7 +91,10 @@ type PayrollLine = {
   code?: string;
   name?: string;
   employee?: { id: string; code: string; name: string };
+  basic?: number;
   salary?: number;
+  days?: number;
+  periodDays?: number;
   presentDays: number;
   paidLeaveDays: number;
   permissionDays: number;
@@ -90,18 +105,22 @@ type PayrollLine = {
   overtimeHours?: number;
   overtimePay?: number;
   lateHours?: number;
+  lateMinutes?: number;
   earned: number;
   bonuses: number;
   deductions: number;
   advances: number;
   latePenalty: number;
   permissionDeduct: number;
+  permissionDeduction?: number;
   salaryNet: number;
   salesTotal: number;
   commissionRate: number;
   commissionDue: number;
   net: number;
+  netToPay?: number;
 };
+type UnlinkedSale = { userId: string; name: string; username: string; salesTotal: number; invoiceCount: number; hint?: string };
 type PayrollRun = {
   id: string;
   number: string;
@@ -117,6 +136,7 @@ type CommissionRow = {
   employeeId: string;
   name: string;
   code: string;
+  linked?: boolean;
   commissionPercent: number;
   salesTotal: number;
   commissionEarned: number;
@@ -173,9 +193,14 @@ function lineCode(line: PayrollLine) {
 export function HrPage() {
   const toast = useToast();
   const confirm = useConfirm();
+  const { user } = useAuth();
   const { can, see } = useAccess();
   const showSalary = see('hr', 'salary');
   const showAmounts = see('hr', 'amounts');
+  const isSelfService = !!user?.access
+    && can('hr', 'request')
+    && !can('hr', 'create')
+    && !can('hr', 'edit');
 
   const [tab, setTab] = useState<Tab>('employees');
   const [loaded, setLoaded] = useState(false);
@@ -192,19 +217,27 @@ export function HrPage() {
   const [runs, setRuns] = useState<PayrollRun[]>([]);
   const [settings, setSettings] = useState<HrSettings | null>(null);
   const [commissions, setCommissions] = useState<CommissionRow[]>([]);
+  const [unlinkedSales, setUnlinkedSales] = useState<UnlinkedSale[]>([]);
   const [empSales, setEmpSales] = useState<{ name: string; code: string; salesTotal: number; fromHr: boolean }[]>([]);
+  const [hrRequests, setHrRequests] = useState<HrReq[]>([]);
+  const [reqForm, setReqForm] = useState({ type: 'LEAVE_PERMISSION', fromDate: todayIso(), toDate: todayIso(), hours: 3 as number | '', amount: '' as number | '', notes: '' });
 
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(todayIso);
   const [methodId, setMethodId] = useState('');
-  const [calcPreview, setCalcPreview] = useState<{ lines: PayrollLine[]; totalNet: number; formula: string } | null>(null);
+  const [calcPreview, setCalcPreview] = useState<{
+    lines: PayrollLine[];
+    totalNet: number;
+    formula: string;
+    skipped?: { employeeId: string; code: string; name: string; reason: string }[];
+  } | null>(null);
   const [printRun, setPrintRun] = useState<PayrollRun | null>(null);
 
   const [empOpen, setEmpOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [empForm, setEmpForm] = useState(emptyEmp);
 
-  const [leaveForm, setLeaveForm] = useState({ employeeId: '', fromDate: todayIso(), toDate: todayIso(), kind: 'PAID', notes: '' });
+  const [leaveForm, setLeaveForm] = useState({ employeeId: '', fromDate: todayIso(), toDate: todayIso(), kind: 'PAID', hours: '' as number | '', notes: '' });
   const [movForm, setMovForm] = useState({ employeeId: '', kind: 'BONUS', amount: '' as number | '', movementDate: todayIso(), notes: '' });
   const [attForm, setAttForm] = useState({
     employeeId: '',
@@ -242,6 +275,10 @@ export function HrPage() {
   async function loadCore() {
     setLoadError('');
     try {
+      if (isSelfService) {
+        setLoaded(true);
+        return;
+      }
       const [emps, linkable, meth, hol, set] = await Promise.all([
         api<Employee[]>('/hr/employees'),
         api<LinkableUser[]>('/hr/linkable-users'),
@@ -267,16 +304,22 @@ export function HrPage() {
 
   async function loadTab() {
     try {
+      if (tab === 'requests') {
+        setHrRequests(await api<HrReq[]>(`/hr/requests${isSelfService ? '?mine=1' : ''}`));
+        return;
+      }
+      if (isSelfService) return;
       if (tab === 'leaves') setLeaves(await api<Leave[]>('/hr/leaves'));
       if (tab === 'movements') setMovements(await api<Movement[]>(`/hr/movements?from=${from}&to=${to}`));
       if (tab === 'attendance') setAttendance(await api<Attendance[]>(`/hr/attendance?from=${from}&to=${to}`));
       if (tab === 'payroll' || tab === 'approval') setRuns(await api<PayrollRun[]>('/hr/payroll/runs'));
       if (tab === 'commissions') {
         const [c, s] = await Promise.all([
-          api<{ rows: CommissionRow[] }>(`/hr/commissions?from=${from}&to=${to}`),
+          api<{ rows: CommissionRow[]; unlinkedSales?: UnlinkedSale[] }>(`/hr/commissions?from=${from}&to=${to}`),
           api<{ rows: { name: string; code: string; salesTotal: number; fromHr: boolean }[] }>(`/hr/employee-sales?from=${from}&to=${to}`),
         ]);
         setCommissions(c.rows);
+        setUnlinkedSales(c.unlinkedSales || []);
         setEmpSales(s.rows);
       }
     } catch (e) {
@@ -284,7 +327,10 @@ export function HrPage() {
     }
   }
 
-  useEffect(() => { loadCore(); }, []);
+  useEffect(() => {
+    if (isSelfService) setTab('requests');
+    loadCore();
+  }, []);
   useEffect(() => { if (loaded) loadTab(); }, [tab, from, to, loaded]);
 
   async function run(action: () => Promise<unknown>, success: string) {
@@ -310,16 +356,35 @@ export function HrPage() {
     [commissions],
   );
 
-  const tabs: { id: Tab; label: string; icon: typeof Users }[] = [
-    { id: 'employees', label: 'الموظفون', icon: Users },
-    { id: 'attendance', label: 'الحضور', icon: CalendarDays },
-    { id: 'leaves', label: 'الإجازات', icon: ClipboardList },
-    { id: 'movements', label: 'الحركات', icon: Wallet },
-    { id: 'payroll', label: 'كشوف المرتبات', icon: Calculator },
-    { id: 'approval', label: 'اعتماد المرتبات', icon: ClipboardList },
-    { id: 'commissions', label: 'العمولات', icon: Percent },
-    { id: 'settings', label: 'الإعدادات', icon: UserCog },
-  ];
+  const tabs: { id: Tab; label: string; icon: typeof Users }[] = isSelfService
+    ? [{ id: 'requests', label: 'طلباتي', icon: ClipboardList }]
+    : [
+        { id: 'employees', label: 'الموظفون', icon: Users },
+        { id: 'attendance', label: 'الحضور', icon: CalendarDays },
+        { id: 'leaves', label: 'الإجازات', icon: ClipboardList },
+        { id: 'movements', label: 'الحركات', icon: Wallet },
+        { id: 'payroll', label: 'كشوف المرتبات', icon: Calculator },
+        { id: 'approval', label: 'اعتماد المرتبات', icon: ClipboardList },
+        { id: 'requests', label: 'الطلبات', icon: ClipboardList },
+        { id: 'commissions', label: 'العمولات', icon: Percent },
+        { id: 'settings', label: 'الإعدادات', icon: UserCog },
+      ];
+
+  async function submitRequest() {
+    const body: Record<string, unknown> = {
+      type: reqForm.type,
+      notes: reqForm.notes || undefined,
+    };
+    if (reqForm.type === 'LEAVE_ANNUAL' || reqForm.type === 'LEAVE_PERMISSION') {
+      body.fromDate = reqForm.fromDate;
+      body.toDate = reqForm.type === 'LEAVE_PERMISSION' ? reqForm.fromDate : reqForm.toDate;
+      if (reqForm.type === 'LEAVE_PERMISSION') body.hours = Number(reqForm.hours) || 0;
+    } else {
+      body.amount = Number(reqForm.amount) || 0;
+      body.fromDate = reqForm.fromDate;
+    }
+    await run(() => api('/hr/requests', { method: 'POST', body: JSON.stringify(body) }), 'تم إرسال الطلب');
+  }
 
   function openCreateEmp() {
     setEditingId(null);
@@ -401,17 +466,39 @@ export function HrPage() {
   async function calcPayroll() {
     setBusy(true);
     try {
-      const res = await api<{ lines: PayrollLine[]; totalNet: number; formula: string }>('/hr/payroll/calc', {
+      const res = await api<{
+        lines: PayrollLine[];
+        totalNet: number;
+        formula: string;
+        skipped?: { employeeId: string; code: string; name: string; reason: string }[];
+      }>('/hr/payroll/calc', {
         method: 'POST',
         body: JSON.stringify({ from, to }),
       });
       setCalcPreview(res);
-      toast.success('تم حساب الكشف');
+      if (res.skipped?.length) {
+        toast.error(`تم استبعاد ${res.skipped.length} موظف بسبب تداخل مع كشف آخر`);
+      } else {
+        toast.success('تم حساب الكشف');
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر الحساب');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function createAccountFor(row: Employee) {
+    const okConfirm = await confirm({
+      title: 'إنشاء حساب مستخدم',
+      message: `سيتم إنشاء حساب مبيعات مربوط بـ ${row.name} وربطه تلقائياً للعمولة.`,
+      confirmLabel: 'إنشاء وربط',
+    });
+    if (!okConfirm) return;
+    await run(
+      () => api(`/hr/employees/${row.id}/account`, { method: 'POST', body: JSON.stringify({ role: 'SALES' }) }),
+      'تم إنشاء الحساب وربطه',
+    );
   }
 
   async function saveDraft() {
@@ -493,7 +580,7 @@ export function HrPage() {
   if (!loaded) {
     return (
       <div>
-        <PageHeader title="الموارد البشرية" subtitle="موظفون · حضور · مرتبات · عمولات" />
+        <PageHeader title="الموارد البشرية" subtitle="طلبات · حضور · مأموريات · مرتبات · عمولات" />
         <PageSkeleton />
       </div>
     );
@@ -503,15 +590,19 @@ export function HrPage() {
     <div>
       <PageHeader
         title="الموارد البشرية"
-        subtitle="موظف (+ ربط مستخدم ونسبة عمولة) → حضور/إجازات/حركات → احسب كشف → مسودة → ترحيل (خزنة/مصروف واحد)"
+        subtitle={isSelfService
+          ? 'طلباتي: إجازة · إذن · سلف — الموافقة من الإدارة هنا فقط (مش طابور الموافقات العام)'
+          : 'تحديث كامل: طلبات الموظفين · مأموريات · كشف مرتب (أساسي/عمولة مستحقة/صافي للصرف) · صرف العمولة مع ترحيل المرتب فقط'}
       />
       {loadError && <Card className="mb-4"><ErrorState text={loadError} onRetry={loadCore} /></Card>}
 
-      <StatGrid>
-        <StatCard label="موظفون نشطون" value={String(activeCount)} icon={Users} tone="brand" onClick={() => setTab('employees')} active={tab === 'employees'} />
-        <StatCard label="مسودات مرتبات" value={String(draftRuns)} icon={Calculator} tone="amber" onClick={() => setTab('payroll')} active={tab === 'payroll'} />
-        <StatCard label="عمولة متبقية" value={formatMoney(commissionDueTotal)} icon={Percent} tone="emerald" onClick={() => setTab('commissions')} active={tab === 'commissions'} />
-      </StatGrid>
+      {!isSelfService && (
+        <StatGrid>
+          <StatCard label="موظفون نشطون" value={String(activeCount)} icon={Users} tone="brand" onClick={() => setTab('employees')} active={tab === 'employees'} />
+          <StatCard label="مسودات مرتبات" value={String(draftRuns)} icon={Calculator} tone="amber" onClick={() => setTab('payroll')} active={tab === 'payroll'} />
+          <StatCard label="عمولة متبقية" value={formatMoney(commissionDueTotal)} icon={Percent} tone="emerald" onClick={() => setTab('commissions')} active={tab === 'commissions'} />
+        </StatGrid>
+      )}
 
       <div className="mb-4 flex w-fit max-w-full flex-wrap rounded-xl border border-slate-200 bg-white p-1 shadow-sm no-print">
         {tabs.map((t) => (
@@ -581,8 +672,11 @@ export function HrPage() {
                     <Td>{row.workHours || settings?.hoursPerDay || 10} س{row.workHours ? '' : ' (افتراضي)'}</Td>
                     <Td><Badge tone={row.isActive ? 'emerald' : 'slate'}>{row.isActive ? 'نشط' : 'موقوف'}</Badge></Td>
                     <Td className="no-print">
-                      <div className="flex gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {can('hr', 'edit') && <Button size="sm" variant="secondary" onClick={() => openEditEmp(row)}>تعديل</Button>}
+                        {can('hr', 'create') && !row.userId && (
+                          <Button size="sm" variant="secondary" onClick={() => createAccountFor(row)}>إنشاء حساب</Button>
+                        )}
                         {can('hr', 'delete') && (
                           <Button size="sm" variant="danger" onClick={async () => {
                             if (!(await confirm({ title: 'حذف موظف', message: row.name, danger: true }))) return;
@@ -665,6 +759,22 @@ export function HrPage() {
                     'تم تسجيل الانصراف الآن',
                   )}>انصراف الآن</Button>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="secondary" disabled={busy || !attForm.employeeId} onClick={() => run(
+                    () => api('/hr/attendance/mission-out', { method: 'POST', body: JSON.stringify({ employeeId: attForm.employeeId }) }),
+                    'تم تسجيل خروج مأمورية',
+                  )}>خروج مأمورية</Button>
+                  <Button variant="secondary" disabled={busy || !attForm.employeeId} onClick={() => run(
+                    () => api('/hr/attendance/mission-in', { method: 'POST', body: JSON.stringify({ employeeId: attForm.employeeId }) }),
+                    'تم تسجيل رجوع من المأمورية',
+                  )}>رجوع مأمورية</Button>
+                </div>
+                {can('hr', 'edit') && (
+                  <Button variant="ghost" disabled={busy} className="w-full" onClick={() => run(
+                    () => api('/hr/attendance/recalculate-late', { method: 'POST', body: JSON.stringify({ from, to }) }),
+                    'تم إعادة حساب التأخير',
+                  )}>إعادة حساب التأخير للفترة</Button>
+                )}
               </div>
             </Card>
           )}
@@ -774,11 +884,26 @@ export function HrPage() {
                 <Field label="النوع">
                   <Select value={leaveForm.kind} onChange={(e) => setLeaveForm({ ...leaveForm, kind: e.target.value })}>
                     <option value="PAID">مدفوعة</option>
+                    <option value="ANNUAL">سنوية (مدفوعة)</option>
+                    <option value="PERMISSION">إذن ساعات</option>
                     <option value="UNPAID">بدون راتب</option>
                   </Select>
                 </Field>
+                {leaveForm.kind === 'PERMISSION' && (
+                  <Field label="ساعات الإذن">
+                    <NumberInput value={leaveForm.hours} onValueChange={(v) => setLeaveForm({ ...leaveForm, hours: v })} />
+                  </Field>
+                )}
+                <Field label="ملاحظات"><Input value={leaveForm.notes} onChange={(e) => setLeaveForm({ ...leaveForm, notes: e.target.value })} /></Field>
                 <Button disabled={busy || !leaveForm.employeeId} className="w-full" onClick={() => run(
-                  () => api('/hr/leaves', { method: 'POST', body: JSON.stringify(leaveForm) }),
+                  () => api('/hr/leaves', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      ...leaveForm,
+                      hours: leaveForm.kind === 'PERMISSION' ? Number(leaveForm.hours) || undefined : undefined,
+                      notes: leaveForm.notes || undefined,
+                    }),
+                  }),
                   'تم تسجيل الإجازة',
                 )}>حفظ</Button>
               </div>
@@ -881,6 +1006,16 @@ export function HrPage() {
                 </div>
                 {showAmounts && <div className="text-lg font-black text-brand-800">الإجمالي: {formatMoney(calcPreview.totalNet)}</div>}
               </div>
+              {!!calcPreview.skipped?.length && (
+                <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <div className="font-bold">مستبعدون (تداخل فترة مع كشف آخر):</div>
+                  <ul className="mt-1 list-disc pr-5">
+                    {calcPreview.skipped.map((s) => (
+                      <li key={s.employeeId}>{s.code} — {s.name}: {s.reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <PayrollTable lines={calcPreview.lines} showSalary={showSalary} showAmounts={showAmounts} detailed />
             </Card>
           )}
@@ -992,20 +1127,134 @@ export function HrPage() {
         </div>
       )}
 
+      {tab === 'requests' && (
+        <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+          {(isSelfService || can('hr', 'request')) && (
+            <Card className="h-fit no-print">
+              <h3 className="mb-3 font-extrabold">{isSelfService ? 'طلب جديد' : 'تسجيل طلب موظف'}</h3>
+              <div className="space-y-3">
+                <Field label="النوع">
+                  <Select value={reqForm.type} onChange={(e) => setReqForm({ ...reqForm, type: e.target.value })}>
+                    <option value="LEAVE_PERMISSION">إذن ساعات</option>
+                    <option value="LEAVE_ANNUAL">إجازة سنوية</option>
+                    <option value="ADVANCE">سلفة</option>
+                    <option value="BONUS">مكافأة</option>
+                    <option value="DEDUCTION">خصم</option>
+                    <option value="LATE">تأخير (خصم)</option>
+                  </Select>
+                </Field>
+                {(reqForm.type === 'LEAVE_ANNUAL' || reqForm.type === 'LEAVE_PERMISSION') && (
+                  <>
+                    <Field label={reqForm.type === 'LEAVE_PERMISSION' ? 'اليوم' : 'من'}>
+                      <Input type="date" value={reqForm.fromDate} onChange={(e) => setReqForm({ ...reqForm, fromDate: e.target.value })} />
+                    </Field>
+                    {reqForm.type === 'LEAVE_ANNUAL' && (
+                      <Field label="إلى">
+                        <Input type="date" value={reqForm.toDate} onChange={(e) => setReqForm({ ...reqForm, toDate: e.target.value })} />
+                      </Field>
+                    )}
+                    {reqForm.type === 'LEAVE_PERMISSION' && (
+                      <Field label="ساعات الإذن">
+                        <NumberInput value={reqForm.hours} onValueChange={(v) => setReqForm({ ...reqForm, hours: v })} />
+                      </Field>
+                    )}
+                  </>
+                )}
+                {['ADVANCE', 'BONUS', 'DEDUCTION', 'LATE'].includes(reqForm.type) && (
+                  <Field label="المبلغ">
+                    <NumberInput value={reqForm.amount} onValueChange={(v) => setReqForm({ ...reqForm, amount: v })} />
+                  </Field>
+                )}
+                <Field label="ملاحظات"><Input value={reqForm.notes} onChange={(e) => setReqForm({ ...reqForm, notes: e.target.value })} /></Field>
+                <Button disabled={busy} className="w-full" onClick={submitRequest}>إرسال الطلب</Button>
+              </div>
+            </Card>
+          )}
+          <Card>
+            <h3 className="mb-3 font-extrabold">{isSelfService ? 'طلباتي' : 'طلبات الموظفين'}</h3>
+            <p className="mb-3 text-xs text-muted">طلبات HR مستقلة عن أي طابور موافقات عام — الموافقة هنا فقط</p>
+            {!hrRequests.length ? <Empty text="لا طلبات" /> : (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>الموظف</Th><Th>النوع</Th><Th>التفاصيل</Th><Th>الحالة</Th>
+                    {!isSelfService && <Th className="no-print"></Th>}
+                    {isSelfService && <Th className="no-print"></Th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {hrRequests.map((row) => (
+                    <tr key={row.id}>
+                      <Td className="font-bold">{row.employee.name}</Td>
+                      <Td>{({ LEAVE_ANNUAL: 'إجازة سنوية', LEAVE_PERMISSION: 'إذن', ADVANCE: 'سلفة', BONUS: 'مكافأة', DEDUCTION: 'خصم', LATE: 'تأخير' } as Record<string, string>)[row.type] || row.type}</Td>
+                      <Td className="text-sm">
+                        {row.hours != null ? `${row.hours} ساعة` : ''}
+                        {row.amount != null ? formatMoney(row.amount) : ''}
+                        {row.fromDate ? ` · ${formatDate(row.fromDate)}${row.toDate && row.toDate !== row.fromDate ? ` ← ${formatDate(row.toDate)}` : ''}` : ''}
+                        {row.notes ? ` · ${row.notes}` : ''}
+                      </Td>
+                      <Td><Badge tone={row.status === 'APPROVED' ? 'emerald' : row.status === 'REJECTED' ? 'rose' : row.status === 'PENDING' ? 'amber' : 'slate'}>{row.status}</Badge></Td>
+                      <Td className="no-print">
+                        <div className="flex flex-wrap gap-1">
+                          {row.status === 'PENDING' && isSelfService && (
+                            <Button size="sm" variant="ghost" onClick={() => run(
+                              () => api(`/hr/requests/${row.id}/cancel`, { method: 'POST', body: '{}' }),
+                              'تم إلغاء الطلب',
+                            )}>إلغاء</Button>
+                          )}
+                          {row.status === 'PENDING' && can('hr', 'edit') && (
+                            <>
+                              <Button size="sm" onClick={async () => {
+                                let reviewNotes: string | undefined;
+                                if (row.type === 'LEAVE_PERMISSION' && row.hours) {
+                                  const raw = window.prompt(`ساعات الخصم المعتمدة (الطلب ${row.hours} ساعة):`, String(row.hours));
+                                  if (raw == null) return;
+                                  reviewNotes = `اعتماد ${raw} ساعة`;
+                                  await run(
+                                    () => api(`/hr/requests/${row.id}/approve`, {
+                                      method: 'POST',
+                                      body: JSON.stringify({ reviewNotes, hours: Number(raw) || row.hours }),
+                                    }),
+                                    'تمت الموافقة',
+                                  );
+                                  return;
+                                }
+                                await run(
+                                  () => api(`/hr/requests/${row.id}/approve`, { method: 'POST', body: JSON.stringify({}) }),
+                                  'تمت الموافقة',
+                                );
+                              }}>موافقة</Button>
+                              <Button size="sm" variant="danger" onClick={() => run(
+                                () => api(`/hr/requests/${row.id}/reject`, { method: 'POST', body: JSON.stringify({}) }),
+                                'تم الرفض',
+                              )}>رفض</Button>
+                            </>
+                          )}
+                        </div>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </Card>
+        </div>
+      )}
+
       {tab === 'commissions' && (
         <div className="space-y-4">
           <Card>
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h3 className="font-extrabold">تقرير العمولات</h3>
-                <p className="text-xs text-muted">الصرف فقط عبر ترحيل المرتبات — لا يوجد صرف منفصل</p>
+                <p className="text-xs text-muted">الصرف صار ضمن كشف المرتبات فقط — لا يوجد صرف منفصل</p>
               </div>
             </div>
             {!commissions.length ? <Empty text="لا بيانات" /> : (
               <Table>
                 <thead>
                   <tr>
-                    <Th>الكود</Th><Th>الاسم</Th><Th>%</Th>
+                    <Th>الكود</Th><Th>الاسم</Th><Th>%</Th><Th>مربوط؟</Th>
                     {showAmounts && <><Th>مبيعات</Th><Th>مستحق</Th><Th>مدفوع</Th><Th>متبقي</Th></>}
                   </tr>
                 </thead>
@@ -1015,6 +1264,7 @@ export function HrPage() {
                       <Td className="font-mono text-xs"><span dir="ltr">{row.code}</span></Td>
                       <Td className="font-bold">{row.name}</Td>
                       <Td>{row.commissionPercent}%</Td>
+                      <Td><Badge tone={row.linked ? 'emerald' : 'amber'}>{row.linked ? 'نعم' : 'لا'}</Badge></Td>
                       {showAmounts && (
                         <>
                           <Td>{formatMoney(row.salesTotal)}</Td>
@@ -1029,6 +1279,25 @@ export function HrPage() {
               </Table>
             )}
           </Card>
+          {!!unlinkedSales.length && (
+            <Card className="border-amber-300 bg-amber-50/40">
+              <h3 className="mb-1 font-extrabold text-amber-950">مبيعات غير مربوطة بموظف</h3>
+              <p className="mb-3 text-xs text-amber-900">فواتير أنشأها مستخدمون بلا بطاقة موظف — اربط الحساب من بطاقة الموظف لتدخل في العمولة</p>
+              <Table>
+                <thead><tr><Th>المستخدم</Th><Th>اسم الدخول</Th><Th>فواتير</Th>{showAmounts && <Th>المبيعات</Th>}</tr></thead>
+                <tbody>
+                  {unlinkedSales.map((row) => (
+                    <tr key={row.userId}>
+                      <Td className="font-bold">{row.name}</Td>
+                      <Td className="font-mono text-xs" dir="ltr">{row.username}</Td>
+                      <Td>{row.invoiceCount}</Td>
+                      {showAmounts && <Td>{formatMoney(row.salesTotal)}</Td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </Card>
+          )}
           <Card>
             <h3 className="mb-3 font-extrabold">مبيعات الموظفين (حسب منشئ الفاتورة)</h3>
             {!empSales.length ? <Empty text="لا مبيعات في الفترة" /> : (
@@ -1260,27 +1529,23 @@ function PayrollTable({
           <tr>
             <Th>الكود</Th>
             <Th>الموظف</Th>
+            {showSalary && <Th>أساسي</Th>}
+            {detailed && <Th>أيام</Th>}
             <Th>حضور</Th>
-            <Th>إجازة</Th>
-            <Th>إذن</Th>
+            <Th>إجازات</Th>
             <Th>غياب</Th>
-            {detailed && <Th>إضافي (س)</Th>}
-            {showSalary && <Th>يومية</Th>}
+            <Th>تأخير</Th>
+            <Th>إذن</Th>
             {showAmounts && (
               <>
-                {detailed && (
-                  <>
-                    <Th>مستحق</Th>
-                    <Th>إضافي</Th>
-                    <Th>مكافآت</Th>
-                    <Th>سلف</Th>
-                    <Th>خصم</Th>
-                  </>
-                )}
-                {!detailed && <Th>مستحق</Th>}
+                <Th>مكافآت</Th>
+                <Th>خصومات</Th>
+                <Th>سلف</Th>
+                <Th>خصم تأخير</Th>
+                <Th>خصم إذن</Th>
                 <Th>صافي راتب</Th>
-                <Th>عمولة</Th>
-                <Th>الصافي</Th>
+                <Th>عمولة مستحقة</Th>
+                <Th>صافي للصرف</Th>
               </>
             )}
           </tr>
@@ -1290,27 +1555,23 @@ function PayrollTable({
             <tr key={line.id || `${line.employeeId}-${i}`}>
               <Td className="font-mono text-xs"><span dir="ltr">{lineCode(line)}</span></Td>
               <Td className="font-bold">{lineName(line)}</Td>
+              {showSalary && <Td>{formatMoney(line.basic ?? line.salary ?? 0)}</Td>}
+              {detailed && <Td>{line.days ?? line.periodDays ?? '—'}</Td>}
               <Td>{line.presentDays}</Td>
               <Td>{line.paidLeaveDays}</Td>
-              <Td>{line.permissionDays}</Td>
               <Td>{line.absentDays}</Td>
-              {detailed && <Td>{line.overtimeHours ?? 0}</Td>}
-              {showSalary && <Td>{formatMoney(line.daily)}</Td>}
+              <Td>{line.lateMinutes != null ? `${line.lateMinutes} د` : `${line.lateHours ?? 0} س`}</Td>
+              <Td>{line.permissionDays}</Td>
               {showAmounts && (
                 <>
-                  {detailed && (
-                    <>
-                      <Td>{formatMoney(line.earned)}</Td>
-                      <Td>{formatMoney(line.overtimePay || 0)}</Td>
-                      <Td>{formatMoney(line.bonuses)}</Td>
-                      <Td>{formatMoney(line.advances)}</Td>
-                      <Td>{formatMoney(line.deductions + line.latePenalty + line.permissionDeduct)}</Td>
-                    </>
-                  )}
-                  {!detailed && <Td>{formatMoney(line.earned)}</Td>}
+                  <Td>{formatMoney(line.bonuses)}</Td>
+                  <Td>{formatMoney(line.deductions)}</Td>
+                  <Td>{formatMoney(line.advances)}</Td>
+                  <Td>{formatMoney(line.latePenalty)}</Td>
+                  <Td>{formatMoney(line.permissionDeduct ?? line.permissionDeduction ?? 0)}</Td>
                   <Td>{formatMoney(line.salaryNet)}</Td>
                   <Td>{formatMoney(line.commissionDue)}</Td>
-                  <Td className="font-extrabold text-brand-800">{formatMoney(line.net)}</Td>
+                  <Td className="font-extrabold text-brand-800">{formatMoney(line.netToPay ?? line.net)}</Td>
                 </>
               )}
             </tr>

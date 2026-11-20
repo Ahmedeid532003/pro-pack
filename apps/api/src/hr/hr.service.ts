@@ -1,14 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
 import {
   HrAttendanceStatus,
   HrLeaveKind,
   HrLeaveStatus,
   HrMovementKind,
   HrPayrollStatus,
+  HrRequestStatus,
+  HrRequestType,
   InvoiceStatus,
   PayMethodKind,
   Prisma,
+  Role,
 } from '@prisma/client';
+import { normalizeAccess } from '../common/access-map';
 import { PrismaService } from '../prisma/prisma.service';
 import { assertPeriodsOpen } from '../settings/period-lock';
 import {
@@ -16,6 +21,7 @@ import {
   dateOnly,
   DEFAULT_HR_SETTINGS,
   eachYmd,
+  egyptMinutesOf,
   employeeHours,
   HR_SETTINGS_KEY,
   isWeekend,
@@ -36,8 +42,37 @@ type CalcLineInput = {
 };
 
 @Injectable()
-export class HrService {
+export class HrService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  /** منح hr.request تلقائياً لمستخدمي المبيعات/المخزن القدامى */
+  async onModuleInit() {
+    try {
+      const users = await this.prisma.user.findMany({
+        where: { role: { in: [Role.SALES, Role.WAREHOUSE] }, isActive: true },
+        select: { id: true, role: true, permissions: true },
+      });
+      for (const user of users) {
+        let access = normalizeAccess(user.permissions ? JSON.parse(user.permissions) : null, user.role);
+        if (!access.hr) continue;
+        if (access.hr.view && access.hr.actions.includes('request')) continue;
+        access = {
+          ...access,
+          hr: {
+            view: true,
+            actions: Array.from(new Set([...(access.hr.actions || []), 'request'])),
+            fields: access.hr.fields?.length ? access.hr.fields : ['amounts'],
+          },
+        };
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { permissions: JSON.stringify(access) },
+        });
+      }
+    } catch {
+      // schema قديم قبل generate — يُتجاهل عند الإقلاع
+    }
+  }
 
   // ─── settings ─────────────────────────────────────────────
   async getSettings(): Promise<HrSettings> {
@@ -264,17 +299,20 @@ export class HrService {
     fromDate: string;
     toDate: string;
     kind?: HrLeaveKind;
+    hours?: number;
     notes?: string;
   }) {
     await this.getEmployee(data.employeeId);
     const { fromDate, toDate } = parseRange(data.fromDate, data.toDate);
+    const kind = data.kind || HrLeaveKind.PAID;
     return this.prisma.hrLeave.create({
       data: {
         employeeId: data.employeeId,
         fromDate,
         toDate,
-        kind: data.kind === HrLeaveKind.UNPAID ? HrLeaveKind.UNPAID : HrLeaveKind.PAID,
+        kind,
         status: HrLeaveStatus.APPROVED,
+        hours: kind === HrLeaveKind.PERMISSION && Number(data.hours) > 0 ? Number(data.hours) : null,
         notes: data.notes?.trim() || null,
       },
       include: { employee: { select: { id: true, code: true, name: true } } },
@@ -403,7 +441,8 @@ export class HrService {
     if (punchIn && (data.lateMinutes == null || data.lateMinutes === undefined)) {
       lateMinutes = this.calcLateMinutes(punchIn, workDate, settings);
     }
-    if (status === HrAttendanceStatus.PRESENT && lateMinutes > settings.lateGraceMinutes) {
+    // lateMinutes مخزّن بعد خصم فترة السماح
+    if (status === HrAttendanceStatus.PRESENT && lateMinutes > 0) {
       status = HrAttendanceStatus.LATE;
     }
 
@@ -480,8 +519,7 @@ export class HrService {
     const settings = await this.getSettings();
     const workDate = dateOnly(ymd);
     const lateMinutes = this.calcLateMinutes(when, workDate, settings);
-    const status =
-      lateMinutes > settings.lateGraceMinutes ? HrAttendanceStatus.LATE : HrAttendanceStatus.PRESENT;
+    const status = lateMinutes > 0 ? HrAttendanceStatus.LATE : HrAttendanceStatus.PRESENT;
     return this.upsertAttendance({
       employeeId,
       workDate: ymd,
@@ -519,15 +557,7 @@ export class HrService {
       `${ymd}T${String(settings.workStartHour).padStart(2, '0')}:${String(settings.workStartMinute).padStart(2, '0')}:00`,
     );
     // interpret work start in local/Cairo wall clock approx via ISO without Z → local; fallback minutes via cairo parts
-    const punchParts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Africa/Cairo',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(punchIn);
-    const ph = Number(punchParts.find((p) => p.type === 'hour')?.value || 0);
-    const pm = Number(punchParts.find((p) => p.type === 'minute')?.value || 0);
-    const punchMins = ph * 60 + pm;
+    const punchMins = egyptMinutesOf(punchIn);
     const startMins = settings.workStartHour * 60 + settings.workStartMinute;
     const diff = punchMins - startMins - settings.lateGraceMinutes;
     return Math.max(0, diff);
@@ -551,6 +581,7 @@ export class HrService {
       const commissionEarned = roundMoney(salesTotal * ((emp.commissionPercent || 0) / 100));
       const paid = await this.commissionPaidExact(emp.id, fromDate, toDate);
       const remaining = roundMoney(Math.max(0, commissionEarned - paid));
+      const commissionDue = remaining;
       rows.push({
         employeeId: emp.id,
         name: emp.name,
@@ -560,12 +591,47 @@ export class HrService {
         commissionEarned,
         commissionPaid: paid,
         commissionRemaining: remaining,
+        commissionDue,
+        linked: !!emp.userId,
+        userName: emp.user?.fullName || null,
         from: fromYmd,
         to: toYmd,
-        userName: emp.user?.fullName || null,
       });
     }
-    return { from: fromYmd, to: toYmd, rows };
+
+    const invoices = await this.prisma.salesInvoice.findMany({
+      where: {
+        invoiceDate: { gte: fromDate, lte: toDate },
+        status: { notIn: [InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED] },
+        createdById: { not: null },
+      },
+      select: { createdById: true, total: true, number: true, invoiceDate: true },
+    });
+    const linkedUserIds = new Set(employees.map((e) => e.userId).filter(Boolean) as string[]);
+    const unlinkedByUser = new Map<string, { salesTotal: number; count: number }>();
+    for (const inv of invoices) {
+      if (!inv.createdById || linkedUserIds.has(inv.createdById)) continue;
+      const cur = unlinkedByUser.get(inv.createdById) || { salesTotal: 0, count: 0 };
+      cur.salesTotal += inv.total;
+      cur.count += 1;
+      unlinkedByUser.set(inv.createdById, cur);
+    }
+    const users = unlinkedByUser.size
+      ? await this.prisma.user.findMany({
+          where: { id: { in: [...unlinkedByUser.keys()] } },
+          select: { id: true, fullName: true, username: true },
+        })
+      : [];
+    const unlinkedSales = users.map((u) => ({
+      userId: u.id,
+      name: u.fullName,
+      username: u.username,
+      salesTotal: roundMoney(unlinkedByUser.get(u.id)?.salesTotal || 0),
+      invoiceCount: unlinkedByUser.get(u.id)?.count || 0,
+      hint: 'اربط هذا المستخدم ببطاقة موظف لتدخل مبيعاته في العمولة',
+    }));
+
+    return { from: fromYmd, to: toYmd, rows, unlinkedSales };
   }
 
   listCommissionPayments(employeeId?: string) {
@@ -581,7 +647,7 @@ export class HrService {
 
   /** ممنوع صرف العمولة منفصلاً */
   payCommissionAlone() {
-    throw new BadRequestException('صرف العمولة فقط عبر ترحيل كشف المرتبات');
+    throw new BadRequestException('الصرف صار ضمن كشف المرتبات فقط');
   }
 
   async employeeSalesReport(from?: string, to?: string) {
@@ -669,8 +735,24 @@ export class HrService {
       orderBy: { code: 'asc' },
     });
 
+    const covered = await this.findCoveredEmployees(
+      employees.map((e) => e.id),
+      fromDate,
+      toDate,
+    );
     const lines = [];
+    const skipped: { employeeId: string; code: string; name: string; reason: string }[] = [];
     for (const emp of employees) {
+      const hit = covered.get(emp.id);
+      if (hit) {
+        skipped.push({
+          employeeId: emp.id,
+          code: emp.code,
+          name: emp.name,
+          reason: `الموظف موجود بالفعل في كشف ${hit.number} (${hit.status === 'POSTED' ? 'مرحّل' : 'مسودة'}) لنفس الفترة أو فترة متداخلة`,
+        });
+        continue;
+      }
       lines.push(await this.calcEmployeeLine(emp, fromDate, toDate, fromYmd, toYmd, workdays, settings));
     }
     const totalNet = roundMoney(lines.reduce((s, l) => s + l.net, 0));
@@ -679,11 +761,40 @@ export class HrService {
       to: toYmd,
       settings,
       workdayCount: workdays.length,
+      periodDays: workdays.length,
       formula:
-        'الصافي = (راتب الفترة − غياب×مضاعف − إجازة غير مدفوعة − تأخير بالساعة − إذن + إضافي×مضاعف + مكافآت − خصومات − سلف) + عمولة',
+        'الصافي للصرف = صافي الراتب + العمولة المستحقة · العمولة المستحقة = المتبقي (مستحق − مدفوع)',
       lines,
+      skipped,
       totalNet,
     };
+  }
+
+  /** موظفون موجودون في كشف DRAFT/POSTED يتداخل مع الفترة */
+  private async findCoveredEmployees(employeeIds: string[], fromDate: Date, toDate: Date, excludeRunId?: string) {
+    if (!employeeIds.length) return new Map<string, { number: string; status: string }>();
+    const lines = await this.prisma.hrPayrollLine.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        run: {
+          ...(excludeRunId ? { id: { not: excludeRunId } } : {}),
+          status: { in: [HrPayrollStatus.DRAFT, HrPayrollStatus.POSTED] },
+          fromDate: { lte: toDate },
+          toDate: { gte: fromDate },
+        },
+      },
+      select: {
+        employeeId: true,
+        run: { select: { number: true, status: true } },
+      },
+    });
+    const map = new Map<string, { number: string; status: string }>();
+    for (const row of lines) {
+      if (!map.has(row.employeeId)) {
+        map.set(row.employeeId, { number: row.run.number, status: row.run.status });
+      }
+    }
+    return map;
   }
 
   private async calcEmployeeLine(
@@ -727,8 +838,9 @@ export class HrService {
       for (const d of eachYmd(cairoYmd(leave.fromDate), cairoYmd(leave.toDate))) {
         if (d < fromYmd || d > toYmd) continue;
         if (!workdays.includes(d)) continue;
-        if (leave.kind === HrLeaveKind.PAID) paidLeaveDaysSet.add(d);
-        else unpaidLeaveDaysSet.add(d);
+        if (leave.kind === HrLeaveKind.PAID || leave.kind === HrLeaveKind.ANNUAL) paidLeaveDaysSet.add(d);
+        else if (leave.kind === HrLeaveKind.UNPAID) unpaidLeaveDaysSet.add(d);
+        // PERMISSION يُحسب بالساعات عبر الحركات/الحضور
       }
     }
 
@@ -774,8 +886,8 @@ export class HrService {
         continue;
       }
       presentDays += 1;
-      const lateBillable = Math.max(0, (att.lateMinutes || 0) - settings.lateGraceMinutes);
-      totalLateMinutes += lateBillable;
+      // lateMinutes في الحضور محسوبة بعد grace مسبقاً
+      totalLateMinutes += Math.max(0, att.lateMinutes || 0);
       if (att.overtimeApproved) totalOvertimeMinutes += Math.max(0, att.overtimeMinutes || 0);
       if (att.permissionMinutes > 0 && settings.permissionDeductPerHour > 0) {
         autoPermissionDeduct += (att.permissionMinutes / 60) * settings.permissionDeductPerHour;
@@ -828,27 +940,35 @@ export class HrService {
     const commissionDue = roundMoney(Math.max(0, commissionEarned - commissionPaidBefore));
     const net = roundMoney(salaryNet + commissionDue);
 
+    const netToPay = net;
     return {
       employeeId: emp.id,
       code: emp.code,
       name: emp.name,
+      basic: emp.salary,
       salary: emp.salary,
+      days: workdays.length,
+      periodDays: workdays.length,
       presentDays,
+      attendanceDays: presentDays,
       paidLeaveDays,
+      leaveDays: paidLeaveDays + unpaidLeaveDays,
       permissionDays,
       absentDays,
       unpaidLeaveDays,
+      lateHours,
+      lateMinutes: totalLateMinutes,
       daily,
       hourlyRate,
       overtimeHours,
       overtimePay,
-      lateHours,
       earned,
       bonuses,
       deductions,
       advances,
       latePenalty,
       permissionDeduct,
+      permissionDeduction: permissionDeduct,
       salaryNet,
       salesTotal,
       commissionRate,
@@ -856,6 +976,7 @@ export class HrService {
       commissionPaidBefore,
       commissionDue,
       net,
+      netToPay,
       movementIds,
       settingsSnapshot: {
         overtimeMultiplier: settings.overtimeMultiplier,
@@ -867,8 +988,38 @@ export class HrService {
   }
 
   // ─── payroll runs ─────────────────────────────────────────
-  listRuns() {
-    return this.prisma.hrPayrollRun.findMany({
+  private hydratePayrollLine<T extends { detailJson?: string | null; employee?: { code?: string; name?: string } | null }>(line: T) {
+    let detail: Record<string, unknown> = {};
+    if (line.detailJson) {
+      try {
+        detail = JSON.parse(line.detailJson) as Record<string, unknown>;
+      } catch {
+        detail = {};
+      }
+    }
+    return {
+      ...line,
+      code: line.employee?.code,
+      name: line.employee?.name,
+      basic: detail.basic,
+      days: detail.days,
+      periodDays: detail.days,
+      lateMinutes: detail.lateMinutes,
+      unpaidLeaveDays: detail.unpaidLeaveDays,
+      netToPay: detail.netToPay ?? (line as { net?: number }).net,
+      settingsSnapshot: detail.settingsSnapshot,
+    };
+  }
+
+  private hydrateRun<T extends { lines: Array<{ detailJson?: string | null; employee?: { code?: string; name?: string } | null }> }>(run: T) {
+    return {
+      ...run,
+      lines: run.lines.map((line) => this.hydratePayrollLine(line)),
+    };
+  }
+
+  async listRuns() {
+    const runs = await this.prisma.hrPayrollRun.findMany({
       include: {
         lines: {
           include: { employee: { select: { id: true, code: true, name: true } } },
@@ -878,6 +1029,7 @@ export class HrService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return runs.map((run) => this.hydrateRun(run));
   }
 
   async getRun(id: string) {
@@ -892,7 +1044,7 @@ export class HrService {
       },
     });
     if (!run) throw new NotFoundException('كشف المرتبات غير موجود');
-    return run;
+    return this.hydrateRun(run);
   }
 
   async saveRun(data: {
@@ -908,7 +1060,16 @@ export class HrService {
       to: data.to,
       employeeIds: data.employeeIds,
     });
+    if (calc.skipped?.length && !calc.lines.length) {
+      throw new BadRequestException(
+        `كل الموظفين مستبعدون بسبب تداخل مع كشوف سابقة: ${calc.skipped.map((s) => `${s.name} (${s.reason})`).join(' · ')}`,
+      );
+    }
     if (!calc.lines.length) throw new BadRequestException('لا يوجد موظفون للحساب');
+    const skipNote = calc.skipped?.length
+      ? `مستبعدون بسبب تداخل: ${calc.skipped.map((s) => s.name).join('، ')}`
+      : '';
+    const notes = [data.notes?.trim(), skipNote].filter(Boolean).join(' · ') || null;
 
     const { fromDate, toDate } = parseRange(data.from, data.to);
 
@@ -921,7 +1082,7 @@ export class HrService {
           toDate,
           status: HrPayrollStatus.DRAFT,
           methodId: data.methodId || null,
-          notes: data.notes?.trim() || null,
+          notes,
           createdById: data.createdById || null,
           totalNet: calc.totalNet,
           lines: {
@@ -949,6 +1110,14 @@ export class HrService {
               commissionPaidBefore: l.commissionPaidBefore,
               commissionDue: l.commissionDue,
               net: l.net,
+              detailJson: JSON.stringify({
+                basic: l.basic,
+                days: l.days,
+                netToPay: l.netToPay,
+                lateMinutes: l.lateMinutes,
+                unpaidLeaveDays: l.unpaidLeaveDays,
+                settingsSnapshot: l.settingsSnapshot,
+              }),
             })),
           },
         },
@@ -967,7 +1136,7 @@ export class HrService {
           data: { payrollRunId: run.id },
         });
       }
-      return run;
+      return this.hydrateRun(run);
     });
   }
 
@@ -1013,7 +1182,7 @@ export class HrService {
 
     const totalNet = roundMoney(run.totalNet);
 
-    return this.prisma.$transaction(async (tx) => {
+    const posted = await this.prisma.$transaction(async (tx) => {
       await tx.cashAccount.update({
         where: { id: account.id },
         data: { balance: { decrement: totalNet } },
@@ -1081,6 +1250,7 @@ export class HrService {
         },
       });
     });
+    return this.hydrateRun(posted);
   }
 
   async commissionsExcel(from?: string, to?: string) {
@@ -1110,5 +1280,363 @@ export class HrService {
     }
     const buffer = await wb.xlsx.writeBuffer();
     return Buffer.from(buffer);
+  }
+
+  async nextEmployeeCode() {
+    const last = await this.prisma.hrEmployee.findFirst({ orderBy: { createdAt: 'desc' }, select: { code: true } });
+    const number = await nextSeq(this.prisma, 'hr-employee', 'EMP');
+    return { code: number, suggested: last?.code || null };
+  }
+
+  async createEmployeeAccount(
+    employeeId: string,
+    data: { username?: string; password?: string; fullName?: string; role?: Role },
+  ) {
+    const emp = await this.getEmployee(employeeId);
+    if (emp.userId) throw new BadRequestException('الموظف مربوط بحساب بالفعل');
+    const username = (data.username || emp.code || `u${Date.now().toString(36)}`).trim().toLowerCase();
+    const password = data.password || `${username}1234`;
+    if (password.length < 4) throw new BadRequestException('كلمة السر 4 أحرف على الأقل');
+    const exists = await this.prisma.user.findUnique({ where: { username } });
+    if (exists) throw new BadRequestException('اسم الدخول مستخدم');
+    const role = data.role || Role.SALES;
+    const access = normalizeAccess(null, role);
+    access.hr = {
+      view: true,
+      actions: Array.from(new Set([...(access.hr?.actions || []), 'request'])),
+      fields: access.hr?.fields?.length ? access.hr.fields : ['amounts'],
+    };
+    const user = await this.prisma.user.create({
+      data: {
+        username,
+        passwordHash: await bcrypt.hash(password, 10),
+        fullName: data.fullName?.trim() || emp.name,
+        role,
+        permissions: JSON.stringify(access),
+      },
+      select: { id: true, username: true, fullName: true, role: true },
+    });
+    const employee = await this.prisma.hrEmployee.update({
+      where: { id: employeeId },
+      data: { userId: user.id },
+      include: { user: { select: { id: true, username: true, fullName: true, role: true } } },
+    });
+    return { employee, user, temporaryPassword: data.password ? undefined : password };
+  }
+
+  async updateEmployeeAccount(employeeId: string, data: { userId?: string | null }) {
+    return this.updateEmployee(employeeId, { userId: data.userId ?? null });
+  }
+
+  async recalculateLate(from?: string, to?: string) {
+    const range = from && to
+      ? parseRange(from, to)
+      : parseRange(cairoYmd(new Date(Date.now() - 30 * 86400000)), cairoYmd(new Date()));
+    const settings = await this.getSettings();
+    const rows = await this.prisma.hrAttendance.findMany({
+      where: {
+        workDate: { gte: range.fromDate, lte: range.toDate },
+        punchIn: { not: null },
+      },
+    });
+    let updated = 0;
+    for (const row of rows) {
+      if (!row.punchIn) continue;
+      const late = await this.computeLateMinutes(row.punchIn, settings);
+      if (late !== row.lateMinutes) {
+        await this.prisma.hrAttendance.update({
+          where: { id: row.id },
+          data: {
+            lateMinutes: late,
+            status: late > 0
+              ? HrAttendanceStatus.LATE
+              : row.status === HrAttendanceStatus.LATE
+                ? HrAttendanceStatus.PRESENT
+                : row.status,
+          },
+        });
+        updated += 1;
+      }
+    }
+    return { updated, from: range.fromYmd, to: range.toYmd };
+  }
+
+  private async computeLateMinutes(punchIn: Date, settings: HrSettings) {
+    return this.calcLateMinutes(punchIn, punchIn, settings);
+  }
+
+  async listMissions(from?: string, to?: string, employeeId?: string) {
+    const where: Prisma.HrAttendanceMissionWhereInput = {};
+    if (employeeId) where.employeeId = employeeId;
+    if (from && to) {
+      const { fromDate, toDate } = parseRange(from, to);
+      where.outAt = { gte: fromDate, lte: toDate };
+    }
+    return this.prisma.hrAttendanceMission.findMany({
+      where,
+      include: {
+        employee: { select: { id: true, code: true, name: true } },
+        attendance: { select: { id: true, workDate: true, punchIn: true, punchOut: true } },
+      },
+      orderBy: { outAt: 'desc' },
+    });
+  }
+
+  async missionOut(employeeId: string, at?: string, notes?: string) {
+    const when = at ? new Date(at) : new Date();
+    const ymd = cairoYmd(when);
+    const attendance = await this.prisma.hrAttendance.findUnique({
+      where: { employeeId_workDate: { employeeId, workDate: dateOnly(ymd) } },
+    });
+    if (!attendance?.punchIn) throw new BadRequestException('سجّل الحضور أولاً قبل خروج المأمورية');
+    if (attendance.punchOut) throw new BadRequestException('تم الانصراف بالفعل — لا يمكن فتح مأمورية');
+    const open = await this.prisma.hrAttendanceMission.findFirst({
+      where: { attendanceId: attendance.id, inAt: null },
+    });
+    if (open) throw new BadRequestException('يوجد مأمورية مفتوحة بالفعل');
+    return this.prisma.hrAttendanceMission.create({
+      data: {
+        attendanceId: attendance.id,
+        employeeId,
+        outAt: when,
+        notes: notes?.trim() || null,
+      },
+    });
+  }
+
+  async missionIn(employeeId: string, at?: string) {
+    const when = at ? new Date(at) : new Date();
+    const open = await this.prisma.hrAttendanceMission.findFirst({
+      where: { employeeId, inAt: null },
+      orderBy: { outAt: 'desc' },
+    });
+    if (!open) throw new BadRequestException('لا توجد مأمورية مفتوحة');
+    return this.prisma.hrAttendanceMission.update({
+      where: { id: open.id },
+      data: { inAt: when },
+    });
+  }
+
+  async deleteMission(id: string) {
+    await this.prisma.hrAttendanceMission.delete({ where: { id } }).catch(() => {
+      throw new NotFoundException('المأمورية غير موجودة');
+    });
+    return { ok: true };
+  }
+
+  async punchOutGuarded(employeeId: string, at?: string) {
+    const open = await this.prisma.hrAttendanceMission.findFirst({
+      where: { employeeId, inAt: null },
+    });
+    if (open) throw new BadRequestException('لا يمكن الانصراف أثناء مأمورية مفتوحة — سجّل الرجوع أولاً');
+    return this.punchOut(employeeId, at);
+  }
+
+  async payrollCovered(from: string, to: string) {
+    const { fromDate, toDate, fromYmd, toYmd } = parseRange(from, to);
+    const employees = await this.prisma.hrEmployee.findMany({ where: { isActive: true }, select: { id: true } });
+    const covered = await this.findCoveredEmployees(employees.map((e) => e.id), fromDate, toDate);
+    return {
+      from: fromYmd,
+      to: toYmd,
+      covered: [...covered.entries()].map(([employeeId, info]) => ({ employeeId, ...info })),
+    };
+  }
+
+  async payrollPayments(from?: string, to?: string) {
+    const where: Prisma.HrPayrollRunWhereInput = { status: HrPayrollStatus.POSTED };
+    if (from && to) {
+      const { fromDate, toDate } = parseRange(from, to);
+      where.fromDate = { lte: toDate };
+      where.toDate = { gte: fromDate };
+    }
+    return this.prisma.hrPayrollRun.findMany({
+      where,
+      include: {
+        _count: { select: { lines: true, commissionPayments: true } },
+      },
+      orderBy: { postedAt: 'desc' },
+    });
+  }
+
+  async me(userId: string) {
+    const employee = await this.prisma.hrEmployee.findFirst({
+      where: { userId, isActive: true },
+      include: { user: { select: { id: true, username: true, fullName: true, role: true } } },
+    });
+    if (!employee) throw new NotFoundException('لا توجد بطاقة موظف مربوطة بحسابك');
+    return employee;
+  }
+
+  async listRequests(userId: string, role: Role, mine?: boolean) {
+    const isAdmin = role === Role.ADMIN || role === Role.ACCOUNTANT;
+    if (!isAdmin || mine) {
+      const emp = await this.prisma.hrEmployee.findFirst({ where: { userId } });
+      if (!emp) return [];
+      return this.prisma.hrRequest.findMany({
+        where: { employeeId: emp.id },
+        include: { employee: { select: { id: true, code: true, name: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    return this.prisma.hrRequest.findMany({
+      include: { employee: { select: { id: true, code: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createRequest(
+    userId: string,
+    data: {
+      type: HrRequestType;
+      fromDate?: string;
+      toDate?: string;
+      hours?: number;
+      amount?: number;
+      notes?: string;
+      employeeId?: string;
+    },
+  ) {
+    let employeeId = data.employeeId;
+    if (!employeeId) {
+      const emp = await this.prisma.hrEmployee.findFirst({ where: { userId, isActive: true } });
+      if (!emp) throw new BadRequestException('اربط حسابك ببطاقة موظف أولاً');
+      employeeId = emp.id;
+    }
+    if (data.type === HrRequestType.LEAVE_ANNUAL || data.type === HrRequestType.LEAVE_PERMISSION) {
+      if (!data.fromDate || !data.toDate) throw new BadRequestException('حدد تاريخ البداية والنهاية');
+    }
+    if (data.type === HrRequestType.LEAVE_PERMISSION && !(Number(data.hours) > 0)) {
+      throw new BadRequestException('حدد عدد ساعات الإذن');
+    }
+    const moneyTypes: HrRequestType[] = [
+      HrRequestType.ADVANCE,
+      HrRequestType.BONUS,
+      HrRequestType.DEDUCTION,
+      HrRequestType.LATE,
+    ];
+    if (moneyTypes.includes(data.type) && !(Number(data.amount) > 0)) {
+      throw new BadRequestException('حدد المبلغ');
+    }
+    return this.prisma.hrRequest.create({
+      data: {
+        employeeId,
+        type: data.type,
+        status: HrRequestStatus.PENDING,
+        fromDate: data.fromDate ? dateOnly(data.fromDate) : null,
+        toDate: data.toDate ? dateOnly(data.toDate) : null,
+        hours: Number(data.hours) > 0 ? Number(data.hours) : null,
+        amount: Number(data.amount) > 0 ? Number(data.amount) : null,
+        notes: data.notes?.trim() || null,
+        createdById: userId,
+      },
+      include: { employee: { select: { id: true, code: true, name: true } } },
+    });
+  }
+
+  async cancelRequest(id: string, userId: string, role: Role) {
+    const row = await this.prisma.hrRequest.findUnique({ where: { id }, include: { employee: true } });
+    if (!row) throw new NotFoundException('الطلب غير موجود');
+    if (row.status !== HrRequestStatus.PENDING) throw new BadRequestException('لا يمكن إلغاء طلب غير معلّق');
+    const isAdmin = role === Role.ADMIN || role === Role.ACCOUNTANT;
+    if (!isAdmin && row.employee.userId !== userId && row.createdById !== userId) {
+      throw new BadRequestException('ليس لديك صلاحية إلغاء هذا الطلب');
+    }
+    return this.prisma.hrRequest.update({
+      where: { id },
+      data: { status: HrRequestStatus.CANCELLED },
+    });
+  }
+
+  async approveRequest(
+    id: string,
+    reviewerId: string,
+    opts?: { reviewNotes?: string; hours?: number; amount?: number },
+  ) {
+    const row = await this.prisma.hrRequest.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('الطلب غير موجود');
+    if (row.status !== HrRequestStatus.PENDING) throw new BadRequestException('الطلب ليس معلّقاً');
+    const approvedHours = opts?.hours != null && Number(opts.hours) > 0 ? Number(opts.hours) : row.hours;
+    const approvedAmount = opts?.amount != null && Number(opts.amount) > 0 ? Number(opts.amount) : row.amount;
+
+    if (row.type === HrRequestType.LEAVE_ANNUAL || row.type === HrRequestType.LEAVE_PERMISSION) {
+      if (!row.fromDate || !row.toDate) throw new BadRequestException('تواريخ الإجازة ناقصة');
+      const kind = row.type === HrRequestType.LEAVE_ANNUAL ? HrLeaveKind.ANNUAL : HrLeaveKind.PERMISSION;
+      await this.prisma.hrLeave.create({
+        data: {
+          employeeId: row.employeeId,
+          fromDate: row.fromDate,
+          toDate: row.toDate,
+          kind,
+          status: HrLeaveStatus.APPROVED,
+          hours: kind === HrLeaveKind.PERMISSION ? approvedHours : null,
+          notes: row.notes,
+        },
+      });
+      if (row.type === HrRequestType.LEAVE_PERMISSION && approvedHours && approvedHours > 0) {
+        const settings = await this.getSettings();
+        const amount = settings.permissionDeductPerHour > 0
+          ? roundMoney(approvedHours * settings.permissionDeductPerHour)
+          : 0;
+        if (amount > 0) {
+          await this.prisma.hrMovement.create({
+            data: {
+              employeeId: row.employeeId,
+              kind: HrMovementKind.PERMISSION,
+              amount,
+              movementDate: row.fromDate,
+              notes: `إذن ${approvedHours} ساعة من طلب ${row.id.slice(-6)}`,
+            },
+          });
+        }
+      }
+    } else {
+      const kindMap: Record<string, HrMovementKind> = {
+        ADVANCE: HrMovementKind.ADVANCE,
+        BONUS: HrMovementKind.BONUS,
+        DEDUCTION: HrMovementKind.DEDUCTION,
+        LATE: HrMovementKind.LATE,
+      };
+      const kind = kindMap[row.type];
+      if (!kind || !(approvedAmount && approvedAmount > 0)) throw new BadRequestException('بيانات الحركة ناقصة');
+      await this.prisma.hrMovement.create({
+        data: {
+          employeeId: row.employeeId,
+          kind,
+          amount: approvedAmount,
+          movementDate: row.fromDate || dateOnly(new Date()),
+          notes: row.notes || `من طلب ${row.type}`,
+        },
+      });
+    }
+
+    return this.prisma.hrRequest.update({
+      where: { id },
+      data: {
+        status: HrRequestStatus.APPROVED,
+        reviewedById: reviewerId,
+        reviewedAt: new Date(),
+        reviewNotes: opts?.reviewNotes?.trim()
+          || (approvedHours != null && approvedHours !== row.hours ? `اعتماد ${approvedHours} ساعة` : null),
+        hours: row.type === HrRequestType.LEAVE_PERMISSION ? approvedHours : row.hours,
+        amount: approvedAmount,
+      },
+      include: { employee: { select: { id: true, code: true, name: true } } },
+    });
+  }
+
+  async rejectRequest(id: string, reviewerId: string, reviewNotes?: string) {
+    const row = await this.prisma.hrRequest.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException('الطلب غير موجود');
+    if (row.status !== HrRequestStatus.PENDING) throw new BadRequestException('الطلب ليس معلّقاً');
+    return this.prisma.hrRequest.update({
+      where: { id },
+      data: {
+        status: HrRequestStatus.REJECTED,
+        reviewedById: reviewerId,
+        reviewedAt: new Date(),
+        reviewNotes: reviewNotes?.trim() || 'مرفوض',
+      },
+    });
   }
 }

@@ -22,6 +22,7 @@ const RULES = [
   { prefix: '/api/cash', page: 'cash' },
   { prefix: '/api/finance', page: 'finance' },
   { prefix: '/api/hr', page: 'hr' },
+  { prefix: '/api/partners', page: 'partners' },
   { prefix: '/api/returns', page: 'returns' },
   { prefix: '/api/documents', page: 'documents' },
   { prefix: '/api/reports', page: 'reports' },
@@ -65,6 +66,10 @@ export function actionFor(method: string, path: string, page: PageId) {
   if (page === 'settings' && path === '/api/settings') return 'company';
   if (page === 'stock' && /\/movements|\/batches|\/locations|\/product-locations/.test(path)) return 'adjust';
   if (/\/image$/.test(path)) return 'edit';
+  if (page === 'hr' && /\/requests\/[^/]+\/(?:approve|reject)$/.test(path)) return 'edit';
+  if (page === 'hr' && /\/requests(?:$|\/[^/]+\/cancel$)/.test(path) && verb !== 'GET' && verb !== 'HEAD') {
+    return 'request';
+  }
   if (page === 'hr' && /\/payroll\/calc$/.test(path)) return 'create';
   if (verb === 'PATCH' || verb === 'PUT') return 'edit';
   if (verb === 'DELETE') return 'delete';

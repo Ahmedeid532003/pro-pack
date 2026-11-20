@@ -12,7 +12,13 @@ import {
   Res,
 } from '@nestjs/common';
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
-import { HrAttendanceStatus, HrLeaveKind, HrMovementKind, Role } from '@prisma/client';
+import {
+  HrAttendanceStatus,
+  HrLeaveKind,
+  HrMovementKind,
+  HrRequestType,
+  Role,
+} from '@prisma/client';
 import { Response } from 'express';
 import { Roles } from '../common/guards';
 import { HrService } from './hr.service';
@@ -31,6 +37,14 @@ class EmployeeDto {
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
+class AccountDto {
+  @IsOptional() @IsString() username?: string;
+  @IsOptional() @IsString() password?: string;
+  @IsOptional() @IsString() fullName?: string;
+  @IsOptional() @IsEnum(Role) role?: Role;
+  @IsOptional() @IsString() userId?: string | null;
+}
+
 class OvertimeApprovalDto {
   @IsBoolean() approved!: boolean;
 }
@@ -40,6 +54,7 @@ class LeaveDto {
   @IsString() fromDate!: string;
   @IsString() toDate!: string;
   @IsOptional() @IsEnum(HrLeaveKind) kind?: HrLeaveKind;
+  @IsOptional() @IsNumber() hours?: number;
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -67,6 +82,7 @@ class AttendanceDto {
 class PunchDto {
   @IsString() employeeId!: string;
   @IsOptional() @IsString() at?: string;
+  @IsOptional() @IsString() notes?: string;
 }
 
 class HolidayDto {
@@ -91,6 +107,22 @@ class SaveRunDto {
 
 class PostRunDto {
   @IsOptional() @IsString() methodId?: string;
+}
+
+class RequestDto {
+  @IsEnum(HrRequestType) type!: HrRequestType;
+  @IsOptional() @IsString() employeeId?: string;
+  @IsOptional() @IsString() fromDate?: string;
+  @IsOptional() @IsString() toDate?: string;
+  @IsOptional() @IsNumber() hours?: number;
+  @IsOptional() @IsNumber() amount?: number;
+  @IsOptional() @IsString() notes?: string;
+}
+
+class ReviewDto {
+  @IsOptional() @IsString() reviewNotes?: string;
+  @IsOptional() @IsNumber() hours?: number;
+  @IsOptional() @IsNumber() amount?: number;
 }
 
 @Controller('hr')
@@ -128,6 +160,11 @@ export class HrController {
     return this.service.listEmployees(q);
   }
 
+  @Get('employees/next-code')
+  nextEmployeeCode() {
+    return this.service.nextEmployeeCode();
+  }
+
   @Get('employees/:id')
   getEmployee(@Param('id') id: string) {
     return this.service.getEmployee(id);
@@ -141,6 +178,16 @@ export class HrController {
   @Patch('employees/:id')
   updateEmployee(@Param('id') id: string, @Body() dto: Partial<EmployeeDto>) {
     return this.service.updateEmployee(id, dto);
+  }
+
+  @Post('employees/:id/account')
+  createAccount(@Param('id') id: string, @Body() dto: AccountDto) {
+    return this.service.createEmployeeAccount(id, dto);
+  }
+
+  @Patch('employees/:id/account')
+  updateAccount(@Param('id') id: string, @Body() dto: AccountDto) {
+    return this.service.updateEmployeeAccount(id, { userId: dto.userId });
   }
 
   @Delete('employees/:id')
@@ -219,12 +266,100 @@ export class HrController {
 
   @Post('attendance/punch-out')
   punchOut(@Body() dto: PunchDto) {
-    return this.service.punchOut(dto.employeeId, dto.at);
+    return this.service.punchOutGuarded(dto.employeeId, dto.at);
+  }
+
+  @Post('attendance/recalculate-late')
+  recalculateLate(@Body() body: { from?: string; to?: string }) {
+    return this.service.recalculateLate(body.from, body.to);
+  }
+
+  @Get('attendance/missions')
+  listMissions(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('employeeId') employeeId?: string,
+  ) {
+    return this.service.listMissions(from, to, employeeId);
+  }
+
+  @Post('attendance/mission-out')
+  missionOut(@Body() dto: PunchDto) {
+    return this.service.missionOut(dto.employeeId, dto.at, dto.notes);
+  }
+
+  @Post('attendance/mission-in')
+  missionIn(@Body() dto: PunchDto) {
+    return this.service.missionIn(dto.employeeId, dto.at);
+  }
+
+  @Delete('attendance/missions/:id')
+  deleteMission(@Param('id') id: string) {
+    return this.service.deleteMission(id);
+  }
+
+  @Get('me')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SALES, Role.WAREHOUSE)
+  me(@Req() req: { user: { userId: string } }) {
+    return this.service.me(req.user.userId);
+  }
+
+  @Get('requests')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SALES, Role.WAREHOUSE)
+  listRequests(
+    @Req() req: { user: { userId: string; role: Role } },
+    @Query('mine') mine?: string,
+  ) {
+    return this.service.listRequests(req.user.userId, req.user.role, mine === '1' || mine === 'true');
+  }
+
+  @Post('requests')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SALES, Role.WAREHOUSE)
+  createRequest(@Req() req: { user: { userId: string } }, @Body() dto: RequestDto) {
+    return this.service.createRequest(req.user.userId, dto);
+  }
+
+  @Post('requests/:id/cancel')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT, Role.SALES, Role.WAREHOUSE)
+  cancelRequest(@Param('id') id: string, @Req() req: { user: { userId: string; role: Role } }) {
+    return this.service.cancelRequest(id, req.user.userId, req.user.role);
+  }
+
+  @Post('requests/:id/approve')
+  approveRequest(
+    @Param('id') id: string,
+    @Req() req: { user: { userId: string } },
+    @Body() dto: ReviewDto,
+  ) {
+    return this.service.approveRequest(id, req.user.userId, {
+      reviewNotes: dto.reviewNotes,
+      hours: dto.hours,
+      amount: dto.amount,
+    });
+  }
+
+  @Post('requests/:id/reject')
+  rejectRequest(
+    @Param('id') id: string,
+    @Req() req: { user: { userId: string } },
+    @Body() dto: ReviewDto,
+  ) {
+    return this.service.rejectRequest(id, req.user.userId, dto.reviewNotes);
   }
 
   @Post('payroll/calc')
   calc(@Body() dto: CalcDto) {
     return this.service.calc(dto);
+  }
+
+  @Get('payroll/covered')
+  payrollCovered(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.payrollCovered(from, to);
+  }
+
+  @Get('payroll/payments')
+  payrollPayments(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.payrollPayments(from, to);
   }
 
   @Get('payroll/runs')

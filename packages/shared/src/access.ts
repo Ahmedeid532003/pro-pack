@@ -13,6 +13,8 @@ export type PageId =
   | 'cash'
   | 'finance'
   | 'hr'
+  | 'partners'
+  | 'statements'
   | 'reports'
   | 'reportBuilder'
   | 'analytics'
@@ -216,11 +218,30 @@ export const PAGES: PageDef[] = [
       { id: 'delete', label: 'حذف' },
       { id: 'post', label: 'ترحيل' },
       { id: 'export', label: 'تصدير' },
+      { id: 'request', label: 'طلباتي' },
     ],
     fields: [
       { id: 'salary', label: 'الراتب' },
       { id: 'amounts', label: 'المبالغ' },
     ],
+  },
+  {
+    id: 'partners',
+    label: 'الشركاء',
+    group: 'المالية',
+    actions: [
+      { id: 'create', label: 'إضافة' },
+      { id: 'edit', label: 'تعديل' },
+      { id: 'delete', label: 'حذف' },
+    ],
+    fields: [{ id: 'amounts', label: 'المبالغ' }],
+  },
+  {
+    id: 'statements',
+    label: 'كشوف حسابات',
+    group: 'المالية',
+    actions: [{ id: 'export', label: 'تصدير' }],
+    fields: [{ id: 'balances', label: 'الأرصدة' }],
   },
   {
     id: 'reports',
@@ -291,18 +312,21 @@ const FIELD_KEYS: Record<string, string[]> = {
     'advances',
     'latePenalty',
     'permissionDeduct',
+    'permissionDeduction',
     'commissionDue',
     'commissionEarned',
     'commissionPaid',
     'commissionPaidBefore',
     'commissionRemaining',
     'net',
+    'netToPay',
     'totalNet',
     'salesTotal',
     'earned',
     'salaryNet',
+    'overtimePay',
   ],
-  salary: ['salary', 'daily'],
+  salary: ['salary', 'daily', 'basic', 'hourlyRate'],
 };
 
 export function emptyGrant(): PageGrant {
@@ -352,7 +376,9 @@ export function templateFor(role: string): AccessMap {
       documents: grant(true, ['create', 'edit'], []),
       cash: grant(true, ['receipt'], []),
       finance: off,
-      hr: off,
+      hr: grant(true, ['request'], ['amounts']),
+      partners: off,
+      statements: off,
       reports: off,
       reportBuilder: off,
       analytics: off,
@@ -376,7 +402,9 @@ export function templateFor(role: string): AccessMap {
     documents: grant(true, ['create', 'edit'], []),
     cash: off,
     finance: off,
-    hr: off,
+    hr: grant(true, ['request'], ['amounts']),
+    partners: off,
+    statements: off,
     reports: off,
     reportBuilder: off,
     analytics: off,
